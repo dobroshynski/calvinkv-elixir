@@ -20,6 +20,9 @@ defmodule Storage do
     store: %{}
   )
 
+  @doc """
+  Creates a Storage RSM in default initial configuration
+  """
   @spec new(atom(), atom()) :: %Storage{}
   def new(replica, partition) do
     %Storage{
@@ -27,34 +30,12 @@ defmodule Storage do
       partition: partition,
     }
   end
-
-  @doc """
-  Returns a unique ID for this component / process, which consists
-  of the replica that this component is assigned to, the partition group, and
-  the type of component this is. Note: replica + partition uniquely identifies a 
-  `physical` node in the Calvin system
-  """
-  @spec get_id(%Storage{}) :: atom()
-  def get_id(proc) do
-    replica = to_charlist(proc.replica)
-    partition = to_charlist(proc.partition)
-    type = to_charlist(proc.type)
-
-    List.to_atom(replica ++ partition ++ '-' ++ type)
-  end
-
-  @doc """
-  Returns replica + partition which uniquely identifies a 
-  `physical` node in the Calvin system
-  """
-  @spec get_node_id(%Storage{}) :: atom()
-  def get_node_id(proc) do
-    replica = to_charlist(proc.replica)
-    partition = to_charlist(proc.partition)
-
-    List.to_atom(replica ++ partition)
-  end
   
+  @doc """
+  Function that processes and executes a given CRUD command against the Storage's key-value store.
+  Depending on the operation, returns either just an :ok, :notok, or the value in case of READ request, 
+  in addition to the updated state for the Storage RSM
+  """
   @spec exec_storage_command(%Storage{}, atom(), any(), any()) :: {any() | :ok | :notok, %Storage{}}
   def exec_storage_command(state, command, key, val \\ nil) do
     case command do
@@ -145,12 +126,94 @@ defmodule Storage do
   @doc """
   Starts the Storage component RSM
   """
-  @spec receive_commands(%Storage{}) :: no_return()
+  @spec start(%Storage{}) :: no_return()
   def start(initial_state) do
     # TODO: do any initializations here for this component / process
 
     # start accepting storage execution commands
     receive_commands(initial_state)
+  end
+end
+
+# Sequencer component process for the Calvin system. This is an RSM that 
+# receives requests from clients during individual epochs, appends them locally
+# to a log-like structure, and when the epoch is completed, replicates the inputs
+# before forwarding them to the Scheduler layer for execution
+
+defmodule Sequencer do
+  import Emulation, only: [send: 2, whoami: 0]
+  import Kernel,
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+
+  defstruct(
+    type: :sequencer,
+    replica: nil,
+    partition: nil,
+    current_epoch: nil,
+    # local logs of entries for epochs
+    # this is a map of {epoch number => log of requests for that epoch}
+    epoch_logs: %{},
+  )
+
+  @doc """
+  Creates a Sequencer RSM in default initial configuration
+  """
+  @spec new(atom(), atom()) :: %Sequencer{}
+  def new(replica, partition) do
+    %Sequencer{
+      replica: replica,
+      partition: partition,
+      current_epoch: 0
+    }
+  end
+
+  @doc """
+  Run the Sequencer component RSM, listen for client requests, append them to log and keep track of
+  current epoch timer
+  """
+  @spec receive_requests(%Sequencer{}) :: no_return()
+  def receive_requests(state) do
+    receive do
+      # client requests
+      # TODO: extend this to transaction requests or CRUD requests for KV store
+      {client_sender, :ping} ->
+        IO.puts("[node #{whoami()}] received a ping request from client {#{client_sender}}")
+
+        receive_requests(state)
+    end
+  end
+
+  @doc """
+  Updates the Sequencer RSM to increment the current epoch by 1 and create a new empty log
+  for that epoch to hold client requests
+  """
+  @spec increment_epoch(%Sequencer{}) :: %Sequencer{}
+  def increment_epoch(state) do
+    # increment the epoch in the RSM
+    old_epoch = state.current_epoch
+    state = %{state | current_epoch: old_epoch + 1}
+    IO.puts("[node #{whoami()}] incremented epoch from #{old_epoch} -> #{state.current_epoch}")
+
+    # create an empty log for the current updated epoch in the RSM
+    updated_epoch_logs = Map.put(state.epoch_logs, state.current_epoch, [])
+    state = %{state | epoch_logs: updated_epoch_logs}
+
+    IO.puts("[node #{whoami()}] current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
+
+    # TODO: start the timer here for duration of epoch
+    state
+  end
+
+  @doc """
+  Starts the Sequencer component RSM
+  """
+  @spec start(%Sequencer{}) :: no_return()
+  def start(initial_state) do
+    # increment the epoch from 0 -> 1
+    state = increment_epoch(initial_state)
+
+    # start accepting requests from clients
+    receive_requests(state)
   end
 
 end
@@ -240,6 +303,41 @@ defmodule CalvinNode do
   end
 end
 
+# Generic component module for Calvin components. Implements some re-used functions
+# that all components may use.
+
+defmodule Component do
+  require Storage
+  require Sequencer
+
+  @doc """
+  Returns a unique ID for this component / process, which consists
+  of the replica that this component is assigned to, the partition group, and
+  the type of component this is. Note: replica + partition uniquely identifies a 
+  `physical` node in the Calvin system
+  """
+  @spec get_id(%Storage{} | %Sequencer{}) :: atom()
+  def get_id(proc) do
+    replica = to_charlist(proc.replica)
+    partition = to_charlist(proc.partition)
+    type = to_charlist(proc.type)
+
+    List.to_atom(replica ++ partition ++ '-' ++ type)
+  end
+
+  @doc """
+  Returns replica + partition for this process which uniquely identifies a 
+  `physical` node that this process belongs to in the Calvin system
+  """
+  @spec get_node_id(%Storage{} | %Sequencer{}) :: atom()
+  def get_node_id(proc) do
+    replica = to_charlist(proc.replica)
+    partition = to_charlist(proc.partition)
+
+    List.to_atom(replica ++ partition)
+  end
+end
+
 defmodule Client do
   import Emulation, only: [send: 2]
 
@@ -300,5 +398,12 @@ defmodule Client do
   def delete(client, key) do
     node = client.calvin_node
     send(node, {:DELETE, key})
+  end
+
+  @doc """
+  Sends a ping request to a Sequencer component of a Calvin node.
+  """
+  def ping_sequencer(client) do
+    send(client.calvin_node, :ping)
   end
 end
