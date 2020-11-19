@@ -1,27 +1,27 @@
-defmodule SingleKVStoreTest do
+defmodule StorageTest do
 	use ExUnit.Case
-	doctest Storage
+    doctest Storage
+    
 	import Emulation, only: [spawn: 2, send: 2]
-	
 	import Kernel,
 		except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
-	test "Client requests to the KV store are logged" do
+	test "Commands to the Storage component are logged" do
 		Emulation.init()
 		Emulation.append_fuzzers([Fuzzers.delay(2)])
 
 		# default replica group and partition single it's only a single node
-		storage_node = Storage.new(:A, 1)
-		node_id = Storage.get_id(storage_node)
+		storage_proc = Storage.new(:A, 1)
+		storage_proc_id = Component.get_id(storage_proc)
 
-		IO.puts("created a Storage node: #{inspect(storage_node)} with node id #{node_id}")
+		IO.puts("created a Storage component: #{inspect(storage_proc)} with id: #{storage_proc_id}")
 
 		# start the node
-		spawn(node_id, fn -> Storage.start(storage_node) end)
+		spawn(storage_proc_id, fn -> Storage.start(storage_proc) end)
 
 		client = spawn(:client,
 			fn -> 
-				client = Client.connect_to(node_id)
+				client = Client.connect_to(storage_proc_id)
 
 				# perform some operations
 				# create a -> 1
