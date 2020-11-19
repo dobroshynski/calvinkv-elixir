@@ -1,6 +1,6 @@
 defmodule SingleKVStoreTest do
 	use ExUnit.Case
-	doctest CalvinNode
+	doctest Storage
 	import Emulation, only: [spawn: 2, send: 2]
 	
 	import Kernel,
@@ -11,13 +11,13 @@ defmodule SingleKVStoreTest do
 		Emulation.append_fuzzers([Fuzzers.delay(2)])
 
 		# default replica group and partition single it's only a single node
-		kv_store = CalvinNode.new(:A, 1)
-		node_id = CalvinNode.node_id(kv_store)
+		storage_node = Storage.new(:A, 1)
+		node_id = Storage.get_id(storage_node)
 
-		IO.puts("created calvin node: #{inspect(kv_store)} with node id #{node_id}")
+		IO.puts("created a Storage node: #{inspect(storage_node)} with node id #{node_id}")
 
 		# start the node
-		spawn(node_id, fn -> CalvinNode.run(kv_store) end)
+		spawn(node_id, fn -> Storage.start(storage_node) end)
 
 		client = spawn(:client,
 			fn -> 
