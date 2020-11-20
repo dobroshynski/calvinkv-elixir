@@ -172,6 +172,23 @@ defmodule Sequencer do
   end
 
   @doc """
+  Extend the local log of the Sequencer RSM to include an incoming Transaction
+  """
+  @spec add_to_log(%Sequencer{}, %Transaction{}) :: %Sequencer{}
+  def add_to_log(state, transaction) do
+    current_epoch = state.current_epoch
+    current_epoch_log = Map.get(state.epoch_logs, current_epoch)
+
+    # extend the log for this epoch with the incoming Transaction
+    updated_log = current_epoch_log ++ [transaction]
+
+    # update the map of {epoch number -> log of tx requests for that epoch}
+    updated_epoch_logs = Map.put(state.epoch_logs, current_epoch, updated_log)
+
+    %{state | epoch_logs: updated_epoch_logs}
+  end
+
+  @doc """
   Run the Sequencer component RSM, listen for client requests, append them to log and keep track of
   current epoch timer
   """
@@ -180,6 +197,24 @@ defmodule Sequencer do
     receive do
       # client requests
       # TODO: extend this to transaction requests or CRUD requests for KV store
+      {client_sender, tx = %Transaction{
+        type: type,
+        key: key,
+        val: val
+      }} ->
+        IO.puts("[node #{whoami()}] received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
+        
+        # timestamp this Transaction at time of receiving
+        tx = Transaction.add_timestamp(tx)
+        IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+
+        # add the incoming Transaction to the Sequencer's local log
+        state = add_to_log(state, tx)
+        IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+
+        # continue listening for requests
+        receive_requests(state)
+
       {client_sender, :ping} ->
         IO.puts("[node #{whoami()}] received a ping request from client {#{client_sender}}")
 
@@ -423,5 +458,12 @@ defmodule Client do
   """
   def ping_sequencer(client) do
     send(client.calvin_node, :ping)
+  end
+
+  def send_create_tx(client, key, val) do
+    node = client.calvin_node
+    tx = Transaction.create(key, val)
+
+    send(node, tx)
   end
 end

@@ -32,6 +32,11 @@ defmodule SequencerTest do
 
           # test a ping request to the Sequencer
           Client.ping_sequencer(client)
+
+          # test Transaction requests to the Sequencer
+          Client.send_create_tx(client, :a, 1)
+          Client.send_create_tx(client, :b, 2)
+          Client.send_create_tx(client, :c, 3)
         end
       )
 
@@ -89,7 +94,7 @@ defmodule SequencerTest do
     after
       wait_timeout -> :ok
     end
-    
+
     handle = Process.monitor(client)
     # timeout
     receive do
