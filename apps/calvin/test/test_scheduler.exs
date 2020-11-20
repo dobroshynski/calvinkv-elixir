@@ -12,11 +12,19 @@ defmodule SchedulerTest do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
-    # default replica group and partition single it's only a single node
-    sequencer_proc = Sequencer.new(:A, 1)
+    # create a configuration
+    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+
+    # default replica :A and partition 1 since only one "physical" node
+    replica = :A
+    partition = 1
+
+    # create the Sequencer component and get it's unique id
+    sequencer_proc = Sequencer.new(_replica=replica, _partition=partition, configuration)
     sequencer_proc_id = Component.get_id(sequencer_proc)
 
-    scheduler_proc = Scheduler.new(:A, 1)
+    # create the Scheduler component and get it's unique id
+    scheduler_proc = Scheduler.new(_replica=replica, _partition=partition, configuration)
     scheduler_proc_id = Component.get_id(scheduler_proc)
 
     IO.puts("created Sequencer #{sequencer_proc_id} and Scheduler #{scheduler_proc_id}")

@@ -150,6 +150,9 @@ defmodule Sequencer do
     replica: nil,
     partition: nil,
 
+    # deployment Configuration
+    configuration: nil,
+
     epoch_timer_duration: 2000, # TODO: make 2 seconds for now
     epoch_timer: nil,
 
@@ -160,13 +163,15 @@ defmodule Sequencer do
   )
 
   @doc """
-  Creates a Sequencer RSM in default initial configuration
+  Creates a Sequencer RSM in default initial configuration and with deployment
+  Configuration specified by `configuration`
   """
-  @spec new(atom(), atom()) :: %Sequencer{}
-  def new(replica, partition) do
+  @spec new(atom(), atom(), %Configuration{}) :: %Sequencer{}
+  def new(replica, partition, configuration) do
     %Sequencer{
       replica: replica,
       partition: partition,
+      configuration: configuration,
       current_epoch: 0
     }
   end
@@ -315,17 +320,22 @@ defmodule Scheduler do
   defstruct(
     type: :scheduler,
     replica: nil,
-    partition: nil
+    partition: nil,
+
+    # deployment Configuration
+    configuration: nil
   )
 
   @doc """
-  Creates a Scheduler RSM in default initial configuration
+  Creates a Scheduler RSM in default initial configuration and with deployment
+  Configuration specified by `configuration`
   """
-  @spec new(atom(), atom()) :: %Scheduler{}
-  def new(replica, partition) do
+  @spec new(atom(), atom(), %Configuration{}) :: %Scheduler{}
+  def new(replica, partition, configuration) do
     %Scheduler{
       replica: replica,
-      partition: partition
+      partition: partition,
+      configuration: configuration
     }
   end
 

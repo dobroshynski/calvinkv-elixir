@@ -42,4 +42,24 @@ defmodule Configuration do
     # 'A' is 65 codepoint, so we use that to convert 0,1,2 -> :A,:B,:C and so on
     Enum.map(replica_range, fn n -> List.to_atom([n + 65]) end)
   end
+
+  @doc """
+  Returns a list of partitions other than the partition of a given component / process `proc`,
+  given a Configuration
+  """
+  @spec get_all_other_partitions(%Storage{} | %Sequencer{} | %Scheduler{}, %Configuration{}) :: [non_neg_integer()]
+  def get_all_other_partitions(proc, configuration) do
+    partitions = Configuration.get_partition_view(configuration)
+    Enum.filter(partitions, fn partition -> partition != proc.partition end)
+  end
+
+  @doc """
+  Returns a list of replicas other than the replica of a given component / process `proc`,
+  given a Configuration
+  """
+  @spec get_all_other_replicas(%Storage{} | %Sequencer{} | %Scheduler{}, %Configuration{}) :: [atom()]
+  def get_all_other_replicas(proc, configuration) do
+    replicas = Configuration.get_replica_view(configuration)
+    Enum.filter(replicas, fn replica -> replica != proc.replica end)
+  end
 end

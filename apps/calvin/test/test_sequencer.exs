@@ -11,8 +11,11 @@ defmodule SequencerTest do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
-    # default replica group and partition single it's only a single node
-    sequencer_proc = Sequencer.new(:A, 1)
+    # create a configuration
+    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+
+    # create Sequencer component and get it's unique id
+    sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
     sequencer_proc_id = Component.get_id(sequencer_proc)
 
     IO.puts(
@@ -63,8 +66,11 @@ defmodule SequencerTest do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
-    # default replica group and partition single it's only a single node
-    sequencer_proc = Sequencer.new(:A, 1)
+    # create a configuration
+    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+
+    # create Sequencer component and get it's unique id
+    sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
     sequencer_proc_id = Component.get_id(sequencer_proc)
 
     IO.puts(
