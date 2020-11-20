@@ -208,15 +208,25 @@ defmodule Sequencer do
 
     IO.puts("[node #{whoami()}] created a BatchTransactionMessage: #{inspect(batch_tx_msg)}")
 
-    # TODO: send out the BatchTransactionMessage to all Schedulers within the same replica as the
+    # get all of the partition numbers in a replica via the current Configuration
+    partition_view = Configuration.get_partition_view(state.configuration)
+    IO.puts("[node #{whoami()}] list of partitions per replica: #{inspect(partition_view)}")
+
+
+    # send out the BatchTransactionMessage to all Schedulers within the same replica as the
     # current Sequencer process / component 
+    Enum.map(partition_view, 
+      fn partition ->
+        # construct a unique id for a recipient Scheduler component within the current replica
+        # given a partition
+        scheduler_id = List.to_atom(to_charlist(state.replica) ++ to_charlist(partition) ++ '-' ++ to_charlist(:scheduler))
+        
+        # send a BatchTransactionMessage to this specific Scheduler component
+        send(scheduler_id, batch_tx_msg)
 
-    # for now, send to the single Scheduler on the same "physical machine" as the current Sequencer
-    # process. Assume the replica is :A and partition is 1 which is the same as current process
-    scheduler_id = List.to_atom(to_charlist(state.replica) ++ to_charlist(state.partition) ++ '-' ++ to_charlist(:scheduler))
-    send(scheduler_id, batch_tx_msg)
-
-    IO.puts("[node #{whoami()}] sent BatchTransactionMessage to scheduler process #{scheduler_id}")
+        IO.puts("[node #{whoami()}] sent BatchTransactionMessage to scheduler process #{scheduler_id}")
+      end
+    )    
   end
 
   @doc """

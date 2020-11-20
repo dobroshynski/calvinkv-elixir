@@ -11,7 +11,7 @@ defmodule StorageTest do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
-    # default replica group and partition single it's only a single node
+    # default replica group and partition since it's only a single node
     storage_proc = Storage.new(_replica=:A, _partition=1)
     storage_proc_id = Component.get_id(storage_proc)
 
