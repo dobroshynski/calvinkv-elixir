@@ -66,3 +66,28 @@ defmodule Transaction do
     }
   end
 end
+
+# Message of batched Transactions that gets sent by the Sequencer to the
+# Scheduler components in the same replica for tx execution
+
+defmodule BatchTransactionMessage do
+  @enforce_keys [:sequencer_id, :epoch, :batch]
+
+  defstruct(
+    sequencer_id: nil,
+    epoch: nil,
+    batch: nil
+  )
+
+  @doc """
+  Creates a new BatchTransactionMessage
+  """
+  @spec new(atom(), non_neg_integer(), [%Transaction{}]) :: %BatchTransactionMessage{}
+  def new(sequencer_id, epoch, batch) do
+    %BatchTransactionMessage{
+      sequencer_id: sequencer_id,
+      epoch: epoch,
+      batch: batch
+    }
+  end
+end

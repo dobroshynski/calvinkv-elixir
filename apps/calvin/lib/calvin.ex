@@ -189,6 +189,32 @@ defmodule Sequencer do
   end
 
   @doc """
+  Sends out BatchTransactionMessage messages to all Schedulers on every parition 
+  within the same replica as the current Sequencer process / component
+  """
+  @spec send_current_epoch_batch(%Sequencer{}) :: no_return()
+  def send_current_epoch_batch(state) do
+    batch_tx_msg = %BatchTransactionMessage{
+      sequencer_id: whoami(),
+      epoch: state.current_epoch,
+      # log of Transactions for the current epoch
+      batch: Map.get(state.epoch_logs, state.current_epoch)
+    }
+
+    IO.puts("[node #{whoami()}] created a BatchTransactionMessage: #{inspect(batch_tx_msg)}")
+
+    # TODO: send out the BatchTransactionMessage to all Schedulers within the same replica as the
+    # current Sequencer process / component 
+
+    # for now, send to the single Scheduler on the same "physical machine" as the current Sequencer
+    # process. Assume the replica is :A and partition is 1 which is the same as current process
+    scheduler_id = List.to_atom(to_charlist(state.replica) ++ to_charlist(state.partition) ++ '-' ++ to_charlist(:scheduler))
+    send(scheduler_id, batch_tx_msg)
+
+    IO.puts("[node #{whoami()}] sent BatchTransactionMessage to scheduler process #{scheduler_id}")
+  end
+
+  @doc """
   Run the Sequencer component RSM, listen for client requests, append them to log and keep track of
   current epoch timer
   """
@@ -223,8 +249,11 @@ defmodule Sequencer do
 
       # epoch timer message signifying the end of the current epoch
       :timer ->
-        IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, starting new epoch")
-        
+        IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
+
+        # send out a BatchTransactionMessage to the Scheduler
+        send_current_epoch_batch(state)
+
         # increment the epoch from current -> current + 1
         state = increment_epoch(state)
 
@@ -242,6 +271,7 @@ defmodule Sequencer do
     # increment the epoch in the RSM
     old_epoch = state.current_epoch
     state = %{state | current_epoch: old_epoch + 1}
+    IO.puts("-------------------- EPOCH #{state.current_epoch} --------------------")
     IO.puts("[node #{whoami()}] incremented epoch from #{old_epoch} -> #{state.current_epoch}")
 
     # create an empty log for the current updated epoch in the RSM
@@ -268,7 +298,68 @@ defmodule Sequencer do
     # start accepting requests from clients
     receive_requests(state)
   end
+end
 
+# Scheduler component process for the Calvin system. This is an RSM that 
+# receives batched requests via a message from the Sequencer components, and
+# is then responsible for interleaving batches from different partitions from the
+# same replica if necessary, and executing the transactions in the final total order
+# against the Storage component. The Scheduler 'schedules' tx execution in a deterministic
+# manner in the order that it determines the transactions to be in for a given epoch
+
+defmodule Scheduler do
+  import Emulation, only: [send: 2, timer: 1, whoami: 0]
+  import Kernel,
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+
+  defstruct(
+    type: :scheduler,
+    replica: nil,
+    partition: nil
+  )
+
+  @doc """
+  Creates a Scheduler RSM in default initial configuration
+  """
+  @spec new(atom(), atom()) :: %Scheduler{}
+  def new(replica, partition) do
+    %Scheduler{
+      replica: replica,
+      partition: partition
+    }
+  end
+
+  @doc """
+  Run the Scheduler component RSM, listen for messages with batched transaction requests from 
+  Sequencer components, store them and once received all of the expected BatchTransactionMessage
+  messages, execute the transaction requests against the Storage component
+  """
+  @spec receive_batched_transaction_messages(%Scheduler{}) :: no_return()
+  def receive_batched_transaction_messages(state) do
+    receive do
+      {sender, msg = %BatchTransactionMessage{
+        sequencer_id: sequencer_id,
+        epoch: epoch,
+        batch: batch
+      }} ->
+        IO.puts("[node #{whoami()}] received a BatchTransactionMessage from sequencer node #{sender}")
+        IO.puts("[node #{whoami()}] msg received: #{inspect(msg)}")
+
+        # continue receiving BatchTransactionMessage
+        receive_batched_transaction_messages(state)
+    end
+  end
+
+  @doc """
+  Starts the Scheduler component RSM
+  """
+  @spec start(%Scheduler{}) :: no_return()
+  def start(initial_state) do
+    # TODO: do any initializations here for this component / process
+
+    # start accepting BatchTransactionMessage messages from the Sequencer components
+    receive_batched_transaction_messages(initial_state)
+  end
 end
 
 defmodule CalvinNode do
@@ -362,6 +453,7 @@ end
 defmodule Component do
   require Storage
   require Sequencer
+  require Scheduler
 
   @doc """
   Returns a unique ID for this component / process, which consists
@@ -369,7 +461,7 @@ defmodule Component do
   the type of component this is. Note: replica + partition uniquely identifies a 
   `physical` node in the Calvin system
   """
-  @spec get_id(%Storage{} | %Sequencer{}) :: atom()
+  @spec get_id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
   def get_id(proc) do
     replica = to_charlist(proc.replica)
     partition = to_charlist(proc.partition)
@@ -382,7 +474,7 @@ defmodule Component do
   Returns replica + partition for this process which uniquely identifies a 
   `physical` node that this process belongs to in the Calvin system
   """
-  @spec get_node_id(%Storage{} | %Sequencer{}) :: atom()
+  @spec get_node_id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
   def get_node_id(proc) do
     replica = to_charlist(proc.replica)
     partition = to_charlist(proc.partition)
