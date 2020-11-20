@@ -53,4 +53,51 @@ defmodule SequencerTest do
   after
     Emulation.terminate()
   end
+
+  test "Epoch timer messages are logged and epochs incremented" do
+    Emulation.init()
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
+
+    # default replica group and partition single it's only a single node
+    sequencer_proc = Sequencer.new(:A, 1)
+    sequencer_proc_id = Component.get_id(sequencer_proc)
+
+    IO.puts(
+      "created a Sequencer component: #{inspect(sequencer_proc)} with id: #{
+        sequencer_proc_id
+      }"
+    )
+
+    # start the node
+    spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc) end)
+
+    client =
+      spawn(
+        :client,
+        fn ->
+          client = Client.connect_to(sequencer_proc_id)
+
+          # test a ping request to the Sequencer
+          Client.ping_sequencer(client)
+        end
+      )
+
+    # wait for a couple of epochs
+    wait_timeout = 5000
+
+    receive do
+    after
+      wait_timeout -> :ok
+    end
+    
+    handle = Process.monitor(client)
+    # timeout
+    receive do
+      {:DOWN, ^handle, _, _, _} -> true
+    after
+      30_000 -> false
+    end
+  after
+    Emulation.terminate()
+  end
 end

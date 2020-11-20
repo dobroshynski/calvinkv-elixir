@@ -141,7 +141,7 @@ end
 # before forwarding them to the Scheduler layer for execution
 
 defmodule Sequencer do
-  import Emulation, only: [send: 2, whoami: 0]
+  import Emulation, only: [send: 2, timer: 1, whoami: 0]
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
@@ -149,10 +149,14 @@ defmodule Sequencer do
     type: :sequencer,
     replica: nil,
     partition: nil,
+
+    epoch_timer_duration: 2000, # TODO: make 2 seconds for now
+    epoch_timer: nil,
+
     current_epoch: nil,
     # local logs of entries for epochs
     # this is a map of {epoch number => log of requests for that epoch}
-    epoch_logs: %{},
+    epoch_logs: %{}
   )
 
   @doc """
@@ -179,6 +183,17 @@ defmodule Sequencer do
       {client_sender, :ping} ->
         IO.puts("[node #{whoami()}] received a ping request from client {#{client_sender}}")
 
+        # continue listening for requests
+        receive_requests(state)
+
+      # epoch timer message signifying the end of the current epoch
+      :timer ->
+        IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, starting new epoch")
+        
+        # increment the epoch from current -> current + 1
+        state = increment_epoch(state)
+
+        # continue listening for requests
         receive_requests(state)
     end
   end
@@ -200,7 +215,10 @@ defmodule Sequencer do
 
     IO.puts("[node #{whoami()}] current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
 
-    # TODO: start the timer here for duration of epoch
+    # start the timer for duration of epoch
+    new_epoch_timer = timer(state.epoch_timer_duration)
+    state = %{state | epoch_timer: new_epoch_timer}
+    
     state
   end
 
