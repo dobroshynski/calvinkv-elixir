@@ -332,6 +332,17 @@ defmodule Scheduler do
     replica: nil,
     partition: nil,
 
+    # locally storing batches that the Scheduler receives from `n` Sequencer components
+    # as partial orderings of Transactions
+    # {epoch -> [ [tx batch 1], [tx batch 2], ... , [tx batch n] ]}
+    partial_orders: %{},
+    # global orders of Transactions once the interleaving is done
+    # {epoch -> [tx1, tx2, ..., tx_n]}
+    global_orders: %{},
+
+    # epoch for which the Scheduler is interleaving partial order Transaction batches for
+    processing_epoch: 0,
+
     # deployment Configuration
     configuration: nil
   )
@@ -350,6 +361,92 @@ defmodule Scheduler do
   end
 
   @doc """
+  Saves a received batch of Transactions via a BatchTransactionMessage from a Sequencer 
+  component to the Scheduler RSM state. Batches are recorded as lists of partial orderings
+  per specific epoch (which is also sent via the BatchTransactionMessage). Once batches from
+  all partitions arrive, the Scheduler will be able to interleave the batches into one global 
+  order and execute against the Storage component
+  """
+  @spec save_received_batch(%Scheduler{}, %BatchTransactionMessage{}) :: %Scheduler{}
+  def save_received_batch(state, batch_msg) do
+    epoch = batch_msg.epoch
+    batch = batch_msg.batch
+
+    # get the partial order batches for this epoch received so far and append the new batch
+    tx_batches = Map.get(state.partial_orders, epoch, [])
+    updated_tx_batches = tx_batches ++ [batch]
+
+    state = %{state | partial_orders: Map.put(state.partial_orders, epoch, updated_tx_batches)}
+
+    IO.puts("[#{whoami()}] PARTIAL TX ORDERS (epoch #{epoch}): 
+    #{inspect(state.partial_orders)}")
+    state
+  end
+
+  @doc """
+  Given a set of partial ordering batches of Transactions and an epoch for which the Scheduler
+  is attempting to interleave partial orderings for, returns an interleaved (sorted) list of
+  Transactions based on tx timestamp
+  """
+  @spec interleave_partial_orderings([[%Transaction{}]], non_neg_integer()) :: [%Transaction{}]
+  def interleave_partial_orderings(partial_orders, epoch) do
+    # get all of the Transactions from all partial ordering batches into one list,
+    # since `partial_orders` is a list of lists containing Transaction batches
+    all_txs = List.flatten(Map.get(partial_orders, epoch))
+
+    IO.puts("[node #{whoami()}] all txs for epoch #{epoch} flattened: #{inspect(all_txs)}")
+    
+    # sort all of the Transactions according to their timestamps
+    sorted_txs = Enum.sort(all_txs, 
+      fn tx1, tx2 ->
+        if tx1.timestamp < tx2.timestamp do
+          true
+        else
+          false
+        end
+      end
+    )
+
+    IO.puts("[node #{whoami()}] GLOBAL TX order done:
+     #{inspect(sorted_txs)}")
+    
+    sorted_txs
+  end
+
+  @doc """
+  Attempts to process the partial orderings of Transaction batches received so far for the current `state.processing_epoch`
+  by interleaving the partial orders into a global order of transactions. Returns the Scheduler state unchaged if haven't received
+  the batches from all Sequencers from all expected partitions yet or returns the Scheduler state updated with the global Transaction
+  order set in `global_orders` for the current `processing_epoch`
+  """
+  @spec attempt_tx_interleave(%Scheduler{}) :: %Scheduler{}
+  def attempt_tx_interleave(state) do
+    expected = state.configuration.num_partitions
+    received = length(Map.get(state.partial_orders, state.processing_epoch, []))
+
+    IO.puts("[node #{whoami()}] attempting to interleave txs for epoch #{state.processing_epoch}
+    partial order state: #{inspect(Map.get(state.partial_orders, state.processing_epoch))}, 
+    batches expected: #{expected}, 
+    batches received: #{received}")
+
+    if expected != received do   
+      # return the state unchanged
+      state
+    else
+      ordered_txs = interleave_partial_orderings(state.partial_orders, state.processing_epoch)
+
+      # save the ordered global Transaction ordering for the epoch that is currently
+      # being processed by this Scheduler
+      %{state | global_orders: Map.put(state.global_orders, state.processing_epoch, ordered_txs)}
+    end
+  end
+
+  # TODO: implement function to execute the global ordering
+  def attempt_tx_execute(state) do
+    state
+  end
+
+  @doc """
   Run the Scheduler component RSM, listen for messages with batched transaction requests from 
   Sequencer components, store them and once received all of the expected BatchTransactionMessage
   messages, execute the transaction requests against the Storage component
@@ -365,9 +462,31 @@ defmodule Scheduler do
         IO.puts("[node #{whoami()}] received a BatchTransactionMessage from sequencer node #{sender}")
         IO.puts("[node #{whoami()}] msg received: #{inspect(msg)}")
 
+        # save the batch of Transaction requests just received from the Sequencer
+        # these do not necessarily have to be for the same epoch as `processing_epoch`
+        # for this Scheduler
+        state = save_received_batch(state, msg)
+
+        # attempt to interleave the batches of Transactions for the current `processing_epoch`
+        # that the Scheduler is currently trying to execute
+        state = attempt_tx_interleave(state)
+
+        # attempt to execute the Transactions for the current `processing_epoch`
+        state = attempt_tx_execute(state)
+
         # continue receiving BatchTransactionMessage
         receive_batched_transaction_messages(state)
     end
+  end
+
+  @doc """
+  Increment the processing epoch that the Scheduler component will attempt to finalize the 
+  batch for and execute against the Storage component
+  """
+  @spec increment_processing_epoch(%Scheduler{}) :: %Scheduler{}
+  def increment_processing_epoch(state) do
+    updated_processing_epoch = state.processing_epoch + 1    
+    %{state | processing_epoch: updated_processing_epoch}
   end
 
   @doc """
@@ -376,9 +495,10 @@ defmodule Scheduler do
   @spec start(%Scheduler{}) :: no_return()
   def start(initial_state) do
     # TODO: do any initializations here for this component / process
+    state = increment_processing_epoch(initial_state)
 
     # start accepting BatchTransactionMessage messages from the Sequencer components
-    receive_batched_transaction_messages(initial_state)
+    receive_batched_transaction_messages(state)
   end
 end
 

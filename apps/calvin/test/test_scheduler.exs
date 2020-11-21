@@ -77,14 +77,24 @@ defmodule SchedulerTest do
 
     # create a configuration
     # single replica partitioned across 3 nodes
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=3)
+    num_partitions = 3
+    configuration = Configuration.new(_num_replicas=1, _num_partitions=num_partitions)
 
-    # create the Sequencer component and get it's unique id
-    sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
-    sequencer_proc_id = Component.get_id(sequencer_proc)
+    # create as many Sequencer components as there are partitions
+    Enum.map(1..num_partitions, 
+      fn partition -> 
+        sequencer_proc_partitioned = Sequencer.new(_replica=:A, _partition=partition, configuration)
+        sequencer_proc_id = Component.get_id(sequencer_proc_partitioned)
+
+        IO.puts("created Sequencer #{sequencer_proc_id}")
+
+        # spawn each Sequencer
+        spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc_partitioned) end)
+      end
+    )
 
     # create as many Scheduler components as there are partitions
-    Enum.map(1..3, 
+    Enum.map(1..num_partitions, 
       fn partition -> 
         scheduler_proc_partitioned = Scheduler.new(_replica=:A, _partition=partition, configuration)
         scheduler_proc_id = Component.get_id(scheduler_proc_partitioned)
@@ -95,17 +105,14 @@ defmodule SchedulerTest do
         spawn(scheduler_proc_id, fn -> Scheduler.start(scheduler_proc_partitioned) end)
       end
     )
-
-    IO.puts("created Sequencer #{sequencer_proc_id}")
-    
-    # spawn Sequencer
-    spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc) end)
     
     client =
       spawn(
         :client,
         fn ->
-          client = Client.connect_to(sequencer_proc_id)
+          # connect to the Sequencer on partition 1
+          default_sequencer = List.to_atom('A1-sequencer')
+          client = Client.connect_to(default_sequencer)
 
           # send a couple of Transaction requests to the Sequencer
           Client.send_create_tx(client, :a, 1)
