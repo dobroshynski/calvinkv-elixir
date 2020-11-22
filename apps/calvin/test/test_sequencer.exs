@@ -7,6 +7,25 @@ defmodule SequencerTest do
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
+
+  # Helper function to collect the states of Sequencer components given 
+  # a list of Sequencer unique ids
+  defp get_sequencer_states(sequencer_ids) do
+    Enum.map(sequencer_ids,
+      fn id ->
+        # send testing / debug message to the Sequencer component directly
+        send(id, :get_state)
+      end
+    )
+    Enum.map(sequencer_ids,
+      fn id ->
+        receive do
+          {^id, state} -> state
+        end
+      end
+    )
+  end
+
   test "Requests to the Sequencer component are logged" do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
@@ -14,17 +33,11 @@ defmodule SequencerTest do
     # create a configuration
     configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
 
-    # create Sequencer component and get it's unique id
+    # create a Sequencer component and get it's unique id
     sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
     sequencer_proc_id = Component.id(sequencer_proc)
 
-    IO.puts(
-      "created a Sequencer component: #{inspect(sequencer_proc)} with id: #{
-        sequencer_proc_id
-      }"
-    )
-
-    # start the node
+    # spawn the Sequencer
     spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc) end)
 
     client =
@@ -40,6 +53,14 @@ defmodule SequencerTest do
           Client.send_create_tx(client, :a, 1)
           Client.send_create_tx(client, :b, 2)
           Client.send_create_tx(client, :c, 3)
+
+          # check that the Transaction logs at each Sequencer are as expected
+          Enum.map(get_sequencer_states([sequencer_proc_id]), 
+            fn state -> 
+              log = Map.get(state.epoch_logs, state.current_epoch)
+              assert length(log) == 3
+            end
+          )
         end
       )
 
@@ -65,21 +86,16 @@ defmodule SequencerTest do
   test "Epoch timer messages are logged and epochs incremented" do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
+    wait_timeout = 5000
 
     # create a configuration
     configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
 
-    # create Sequencer component and get it's unique id
+    # create a Sequencer component and get it's unique id
     sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
     sequencer_proc_id = Component.id(sequencer_proc)
 
-    IO.puts(
-      "created a Sequencer component: #{inspect(sequencer_proc)} with id: #{
-        sequencer_proc_id
-      }"
-    )
-
-    # start the node
+    # spawn the Sequencer
     spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc) end)
 
     client =
@@ -90,11 +106,18 @@ defmodule SequencerTest do
 
           # test a ping request to the Sequencer
           Client.ping_sequencer(client)
+          
+          # wait for a couple of epochs
+          :timer.sleep(wait_timeout)
+
+          # check that the epoch at each Sequencer is as expected
+          Enum.map(get_sequencer_states([sequencer_proc_id]), 
+            fn state ->
+              assert state.current_epoch == 3 
+            end
+          )
         end
       )
-
-    # wait for a couple of epochs
-    wait_timeout = 5000
 
     receive do
     after

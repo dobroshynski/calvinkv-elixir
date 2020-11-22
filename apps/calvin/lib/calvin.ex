@@ -282,6 +282,14 @@ defmodule Sequencer do
 
         # continue listening for requests
         receive_requests(state)
+
+      # ----------------------------
+      # testing / debugging messages
+      # ----------------------------
+
+      {debug_sender, :get_state} ->
+        send(debug_sender, state)
+        receive_requests(state)
     end
   end
 
