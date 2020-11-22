@@ -790,4 +790,18 @@ defmodule Client do
 
     send(node, tx)
   end
+
+  def send_update_tx(client, key, val) do
+    node = client.calvin_node
+    tx = Transaction.update(key, val)
+
+    send(node, tx)
+  end
+
+  def send_delete_tx(client, key) do
+    node = client.calvin_node
+    tx = Transaction.delete(key)
+
+    send(node, tx)
+  end
 end

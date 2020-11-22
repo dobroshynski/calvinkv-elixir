@@ -51,8 +51,7 @@ defmodule SchedulerTest do
         end
       )
 
-    # wait for the first epoch to finish and the BatchTransactionMessage
-    # to be sent to the Scheduler component
+    # timeout after a couple epochs
     wait_timeout = 5000
 
     receive do
@@ -126,8 +125,7 @@ defmodule SchedulerTest do
         end
       )
 
-    # wait for the first epoch to finish and the BatchTransactionMessage
-    # to be sent to the Scheduler component
+    # timeout after a couple epochs
     wait_timeout = 5000
 
     receive do

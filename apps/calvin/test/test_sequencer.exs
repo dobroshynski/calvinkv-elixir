@@ -86,7 +86,6 @@ defmodule SequencerTest do
   test "Epoch timer messages are logged and epochs incremented" do
     Emulation.init()
     Emulation.append_fuzzers([Fuzzers.delay(2)])
-    wait_timeout = 5000
 
     # create a configuration
     configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
@@ -108,7 +107,7 @@ defmodule SequencerTest do
           Client.ping_sequencer(client)
           
           # wait for a couple of epochs
-          :timer.sleep(wait_timeout)
+          :timer.sleep(5000)
 
           # check that the epoch at each Sequencer is as expected
           Enum.map(get_sequencer_states([sequencer_proc_id]), 
@@ -118,6 +117,9 @@ defmodule SequencerTest do
           )
         end
       )
+
+    # timeout after a couple epochs
+    wait_timeout = 5000
 
     receive do
     after
