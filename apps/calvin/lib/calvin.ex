@@ -120,6 +120,14 @@ defmodule Storage do
         {ret, state} = exec_storage_command(state, :DELETE, key)
         
         receive_commands(state)
+
+      # ----------------------------
+      # testing / debugging messages
+      # ----------------------------
+
+      {debug_sender, :get_kv_store} ->
+        send(debug_sender, state.store)
+        receive_commands(state)
       end
   end
 

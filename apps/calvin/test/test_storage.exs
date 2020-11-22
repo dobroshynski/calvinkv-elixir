@@ -60,6 +60,24 @@ defmodule StorageTest do
   after
     Emulation.terminate()
   end
+
+  # Helper function to collect the key-value store states of Storage components given 
+  # a list of Storage unique ids
+  defp get_kv_stores(storage_ids) do
+    Enum.map(storage_ids,
+      fn id ->
+        # send testing / debug message to the Storage component directly
+        send(id, :get_kv_store)
+      end
+    )
+    Enum.map(storage_ids,
+      fn id ->
+        receive do
+          {^id, kv_store} -> kv_store
+        end
+      end
+    )
+  end
   
   test "Commands are executed against Storage components by all partitions" do
     Emulation.init()
@@ -67,16 +85,15 @@ defmodule StorageTest do
 
     # create a configuration
     # single replica partitioned across 3 nodes
+    replica = :A
     num_partitions = 3
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=num_partitions)
+    configuration = Configuration.new(_num_replicas=replica, _num_partitions=num_partitions)
     
     # create as many Sequencer components as there are partitions
     Enum.map(1..num_partitions, 
       fn partition -> 
-        sequencer_proc_partitioned = Sequencer.new(_replica=:A, _partition=partition, configuration)
+        sequencer_proc_partitioned = Sequencer.new(_replica=replica, _partition=partition, configuration)
         sequencer_proc_id = Component.id(sequencer_proc_partitioned)
-
-        IO.puts("created Sequencer #{sequencer_proc_id}")
 
         # spawn each Sequencer
         spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc_partitioned) end)
@@ -86,10 +103,8 @@ defmodule StorageTest do
     # create as many Scheduler components as there are partitions
     Enum.map(1..num_partitions, 
       fn partition -> 
-        scheduler_proc_partitioned = Scheduler.new(_replica=:A, _partition=partition, configuration)
+        scheduler_proc_partitioned = Scheduler.new(_replica=replica, _partition=partition, configuration)
         scheduler_proc_id = Component.id(scheduler_proc_partitioned)
-
-        IO.puts("created Scheduler #{scheduler_proc_id}")
 
         # spawn each Scheduler
         spawn(scheduler_proc_id, fn -> Scheduler.start(scheduler_proc_partitioned) end)
@@ -99,10 +114,8 @@ defmodule StorageTest do
     # create as many Storage components as there are partitions
     Enum.map(1..num_partitions, 
     fn partition -> 
-      storage_proc_partitioned = Storage.new(_replica=:A, _partition=partition)
+      storage_proc_partitioned = Storage.new(_replica=replica, _partition=partition)
       storage_proc_id = Component.id(storage_proc_partitioned)
-
-      IO.puts("created Storage #{storage_proc_id}")
 
       # spawn each Storage
       spawn(storage_proc_id, fn -> Storage.start(storage_proc_partitioned) end)
@@ -120,12 +133,25 @@ defmodule StorageTest do
           # send a couple of Transaction requests to the Sequencer
           Client.send_create_tx(client, :a, 1)
           Client.send_create_tx(client, :b, 2)
-
+          
           # wait for this epoch to finish, then send some more requests
           :timer.sleep(3000)
 
-          Client.send_create_tx(client, :c, 3)
+          # get the key-value stores from every Storage component
+          partition_view = Configuration.get_partition_view(configuration)
+          storage_ids = Enum.map(partition_view, fn partition -> List.to_atom(to_charlist(replica) ++ to_charlist(partition) ++ '-storage') end)
 
+          kv_stores = get_kv_stores(_ids=storage_ids)
+
+          # check that every Storage node has the expected key-value store
+          Enum.map(kv_stores,
+            fn kv_store ->
+              assert Map.get(kv_store, :a) == 1
+              assert Map.get(kv_store, :b) == 2
+            end
+          )
+
+          Client.send_create_tx(client, :c, 3)
         end
       )
 
