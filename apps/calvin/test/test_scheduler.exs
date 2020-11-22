@@ -21,11 +21,11 @@ defmodule SchedulerTest do
 
     # create the Sequencer component and get it's unique id
     sequencer_proc = Sequencer.new(_replica=replica, _partition=partition, configuration)
-    sequencer_proc_id = Component.get_id(sequencer_proc)
+    sequencer_proc_id = Component.id(sequencer_proc)
 
     # create the Scheduler component and get it's unique id
     scheduler_proc = Scheduler.new(_replica=replica, _partition=partition, configuration)
-    scheduler_proc_id = Component.get_id(scheduler_proc)
+    scheduler_proc_id = Component.id(scheduler_proc)
 
     IO.puts("created Sequencer #{sequencer_proc_id} and Scheduler #{scheduler_proc_id}")
       
@@ -84,7 +84,7 @@ defmodule SchedulerTest do
     Enum.map(1..num_partitions, 
       fn partition -> 
         sequencer_proc_partitioned = Sequencer.new(_replica=:A, _partition=partition, configuration)
-        sequencer_proc_id = Component.get_id(sequencer_proc_partitioned)
+        sequencer_proc_id = Component.id(sequencer_proc_partitioned)
 
         IO.puts("created Sequencer #{sequencer_proc_id}")
 
@@ -97,7 +97,7 @@ defmodule SchedulerTest do
     Enum.map(1..num_partitions, 
       fn partition -> 
         scheduler_proc_partitioned = Scheduler.new(_replica=:A, _partition=partition, configuration)
-        scheduler_proc_id = Component.get_id(scheduler_proc_partitioned)
+        scheduler_proc_id = Component.id(scheduler_proc_partitioned)
 
         IO.puts("created Scheduler #{scheduler_proc_id}")
 

@@ -21,6 +21,28 @@ defmodule Transaction do
   end
 
   @doc """
+  Returns a condensed representation of a Transaction, which is a tuple of
+  the Transaction type and either just the key, or the key and the value 
+  associated with the Transaction
+  """
+  @spec condensed(%Transaction{}) :: %Transaction{}
+  def condensed(tx) do
+    case tx.type do
+      type = :READ ->
+        {type, tx.key}
+      
+      type = :CREATE ->
+        {type, tx.key, tx.val}
+      
+      type = :UPDATE ->
+        {type, tx.key, tx.val}
+
+      type = :DELETE ->
+        {type, tx.key}
+    end
+  end
+
+  @doc """
   CREATE transaction
   """
   @spec create(any(), any()) :: %Transaction{}

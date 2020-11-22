@@ -441,9 +441,55 @@ defmodule Scheduler do
     end
   end
 
-  # TODO: implement function to execute the global ordering
+  @doc """
+  Executes a single Transaction against a Storage component with unique id `storage_id`
+  """
+  @spec tx_execute(%Transaction{}, atom()) :: no_return()
+  def tx_execute(tx, storage_id) do
+    message = Transaction.condensed(tx)
+    # TODO: this message send / execution RPC has to be executed without delays to mimic a
+    # transaction execution thread that executes all transactions from the global ordering
+    # in sequential order
+    send(storage_id, message)
+
+    IO.puts("[node #{whoami()}] sent tx message #{inspect(message)} to be execute by Storage component #{storage_id}")
+  end
+
+  @doc """
+  Attempts to execute a global ordering of Transactions in `global_orders` for the current `processing_epoch`
+  against the Storage component residing on the same `physical` machine as the Scheduler RSM. If the
+  global transaction ordering has been completed and is available to be executed, execute Transactions
+  against the Storage component, increment the current `processing_epoch` to move up to the next epoch
+  to process, and return the updated state, otherwise return the Scheduler state unchanged since the 
+  global ordering is not done and we are waiting for partial ordering batches from Sequencer components
+  """
+  @spec attempt_tx_execute(%Scheduler{}) :: %Scheduler{}
   def attempt_tx_execute(state) do
-    state
+    # first check if the global ordering for this `processing_epoch` epoch has been
+    # completed yet by the `attempt_tx_interleave()` function
+    if Map.has_key?(state.global_orders, state.processing_epoch) == false do
+      # return the state unchanged 
+      state
+    else
+      # retrieve the global ordering of Transactions for this `processing_epoch`
+      ordered_txs = Map.get(state.global_orders, state.processing_epoch)
+
+      # get the id for the Storage component that is on the same `physical` node
+      # as the Scheduler 
+      storage_id = Component.storage_id(state)
+
+      # iterate the Transactions and execute against the Storage component
+      # TODO: add functionality to handle deterministic tx failures
+      Enum.map(ordered_txs, 
+        fn tx ->
+          tx_execute(_transaction=tx, _storage=storage_id)
+        end
+      )
+
+      # once all of the Transactions have been executed, move up to the next epoch
+      # to process by this Scheduler RSM and return the updated state
+      increment_processing_epoch(state)
+    end
   end
 
   @doc """
@@ -601,8 +647,8 @@ defmodule Component do
   the type of component this is. Note: replica + partition uniquely identifies a 
   `physical` node in the Calvin system
   """
-  @spec get_id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
-  def get_id(proc) do
+  @spec id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
+  def id(proc) do
     replica = to_charlist(proc.replica)
     partition = to_charlist(proc.partition)
     type = to_charlist(proc.type)
@@ -614,12 +660,42 @@ defmodule Component do
   Returns replica + partition for this process which uniquely identifies a 
   `physical` node that this process belongs to in the Calvin system
   """
-  @spec get_node_id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
-  def get_node_id(proc) do
+  @spec physical_node_id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
+  def physical_node_id(proc) do
     replica = to_charlist(proc.replica)
     partition = to_charlist(proc.partition)
 
     List.to_atom(replica ++ partition)
+  end
+
+  @doc """
+  Given a Sequencer or Scheduler component, returns the corresponding Storage
+  component's unique ID which resides on the same `physical` node in the system
+  """
+  @spec storage_id(%Sequencer{} | %Scheduler{}) :: atom()
+  def storage_id(proc) do
+    node_id = physical_node_id(proc)
+    List.to_atom(to_charlist(node_id) ++ '-' ++ to_charlist(:storage))
+  end
+
+  @doc """
+  Given a Storage or Scheduler component, returns the corresponding Sequencer
+  component's unique ID which resides on the same `physical` node in the system
+  """
+  @spec sequencer_id(%Storage{} | %Scheduler{}) :: atom()
+  def sequencer_id(proc) do
+    node_id = physical_node_id(proc)
+    List.to_atom(to_charlist(node_id) ++ '-' ++ to_charlist(:sequencer))
+  end
+
+  @doc """
+  Given a Storage or Sequencer component, returns the corresponding Scheduler
+  component's unique ID which resides on the same `physical` node in the system
+  """
+  @spec scheduler_id(%Storage{} | %Sequencer{}) :: atom()
+  def scheduler_id(proc) do
+    node_id = physical_node_id(proc)
+    List.to_atom(to_charlist(node_id) ++ '-' ++ to_charlist(:scheduler))
   end
 end
 
