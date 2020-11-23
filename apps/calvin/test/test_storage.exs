@@ -195,6 +195,9 @@ defmodule StorageTest do
 
         # send a couple of Transaction requests to the Sequencer
         Client.send_create_tx(client, :c, 1)
+        # wait a bit to make sure that the update from client 2 comes 
+        # after the create tx from client 1
+        :timer.sleep(1000)
         Client.send_update_tx(client, :b, 1)
         
         # wait for this epoch to finish and for batches from other Sequencer to arrive

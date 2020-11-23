@@ -497,15 +497,16 @@ defmodule Scheduler do
     # sort all of the Transactions according to their timestamps
     sorted_txs = Enum.sort(all_txs, 
       fn tx1, tx2 ->
-        if tx1.timestamp < tx2.timestamp do
-          true
-        else
-          false
+        case DateTime.compare(tx1.timestamp, tx2.timestamp) do
+          :lt ->
+            true
+          _ -> 
+            false
         end
       end
     )
 
-    IO.puts("[node #{whoami()}] GLOBAL TX order done:
+    IO.puts("[node #{whoami()}] sorted GLOBAL TX order done:
      #{inspect(sorted_txs)}")
     
     sorted_txs

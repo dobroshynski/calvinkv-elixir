@@ -17,7 +17,7 @@ defmodule Transaction do
   """
   @spec add_timestamp(%Transaction{}) :: %Transaction{}
   def add_timestamp(tx) do
-    %{tx | timestamp: System.system_time}
+    %{tx | timestamp: DateTime.utc_now()}
   end
 
   @doc """
