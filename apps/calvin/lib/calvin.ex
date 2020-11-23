@@ -320,6 +320,23 @@ defmodule Sequencer do
   end
 
   @doc """
+  Forwards a Transaction request to a randomly chosen Sequencer component on the main replica
+  as given by the current Configuration
+  """
+  @spec forward_request(%Sequencer{}, %Transaction{}) :: no_return()
+  def forward_request(state, tx) do
+    main_replica = state.configuration.main_replica
+    # get a list of Sequencers on the main replica that we can forward this Transaction to
+    sequencers = Configuration.get_sequencer_view(state.configuration, _replica=main_replica)
+
+    # pick a random Sequencer to forward the Transaction to
+    sequencer = Enum.random(sequencers)
+    send(sequencer, tx)
+
+    IO.puts("[node #{whoami()}] forwarded tx #{inspect(tx)} to sequencer #{sequencer}")
+  end
+
+  @doc """
   Run the Sequencer component RSM, listen for client requests, append them to log and keep track of
   current epoch timer
   """
@@ -335,16 +352,27 @@ defmodule Sequencer do
       }} ->
         IO.puts("[node #{whoami()}] received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
         
-        # timestamp this Transaction at time of receiving
-        tx = Transaction.add_timestamp(tx)
-        IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+        # if the Sequencer RSM is not located on the main replica, forward this
+        # Transaction request to any of the Sequencers on the main replica given by
+        # the Configuration
+        if Component.on_main_replica?(state) == false do
+          # forward the Transaction
+          forward_request(state, tx)
+          
+          # continue listening for requests
+          receive_requests(state)
+        else
+          # timestamp this Transaction at time of receiving
+          tx = Transaction.add_timestamp(tx)
+          IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
 
-        # add the incoming Transaction to the Sequencer's local log
-        state = add_to_log(state, tx)
-        IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+          # add the incoming Transaction to the Sequencer's local log
+          state = add_to_log(state, tx)
+          IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
 
-        # continue listening for requests
-        receive_requests(state)
+          # continue listening for requests
+          receive_requests(state)
+        end
 
       {client_sender, :ping} ->
         IO.puts("[node #{whoami()}] received a ping request from client {#{client_sender}}")
@@ -758,6 +786,21 @@ defmodule Component do
   @spec id(atom(), non_neg_integer(), atom()) :: atom()
   def id(replica, partition, type) do
     List.to_atom(to_charlist(replica) ++ to_charlist(partition) ++ '-' ++ to_charlist(type))
+  end
+
+  @doc """
+  Returns whether a given component / process `proc` is located at the current 
+  main replica
+  """
+  @spec on_main_replica?(%Storage{} | %Sequencer{} | %Scheduler{}) :: boolean()
+  def on_main_replica?(proc) do
+    main_replica = proc.configuration.main_replica
+    replica = proc.replica
+    if replica == main_replica do
+      true
+    else
+      false
+    end
   end
 
   @doc """

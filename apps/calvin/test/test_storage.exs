@@ -227,4 +227,57 @@ defmodule StorageTest do
   after
     Emulation.terminate()
   end
+
+  test "Requests to non-main replicas get forwarded to main replica" do
+    Emulation.init()
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
+
+    # create a configuration with 2 replicas
+    configuration = Configuration.new(_num_replicas=2, _num_partitions=3, _main_replica=:A)
+    
+    # launch the Calvin components
+    Calvin.launch(configuration)
+
+    spawn(
+      :client,
+      fn ->
+        # connect to the Sequencer on a non-main replica
+        sequencer_B1 = Component.id(_replica=:B, _partition=1, _type=:sequencer)
+        client = Client.connect_to(sequencer_B1)
+
+        # send a couple of Transaction requests to the Sequencer
+        Client.send_create_tx(client, :a, 1)
+        Client.send_create_tx(client, :b, 2)
+        Client.send_create_tx(client, :c, 3)
+        
+        # wait for this epoch to finish
+        :timer.sleep(3000)
+
+        # get the key-value stores from every Storage component on the main replica, since
+        # the Transaction requests should have been forwarded to that replica
+        kv_stores = get_kv_stores(
+          _ids=Configuration.get_storage_view(configuration, configuration.main_replica)
+        )
+
+        # check that every Storage node has the expected key-value store
+        Enum.map(kv_stores,
+          fn kv_store ->
+            assert Map.get(kv_store, :a) == 1
+            assert Map.get(kv_store, :b) == 2
+            assert Map.get(kv_store, :c) == 3
+          end
+        )
+      end
+    )
+
+    # timeout after a couple epochs
+    wait_timeout = 5000
+
+    receive do
+    after
+      wait_timeout -> :ok
+    end
+  after
+    Emulation.terminate()
+  end
 end

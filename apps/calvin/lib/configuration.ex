@@ -8,7 +8,10 @@ defmodule Configuration do
 
   defstruct(
     num_replicas: nil,
-    num_partitions: nil
+    num_partitions: nil,
+    # for async replication, storing which replica is the 
+    # main replica
+    main_replica: nil
   )
 
   @doc """
@@ -17,10 +20,37 @@ defmodule Configuration do
   """
   @spec new(non_neg_integer(), non_neg_integer()) :: %Configuration{}
   def new(num_replicas, num_partitions) do
+    configuration = %Configuration{
+      num_replicas: num_replicas,
+      num_partitions: num_partitions,
+    }
+
+    # if no main replica was provided, default to the 
+    # name of the first replica
+    replicas = Configuration.get_replica_view(configuration)
+    Configuration.set_main_replica(configuration, _replica=Enum.at(replicas, 0))
+  end
+
+  @doc """
+  Creates a new Configuration with `num_replicas` replicas, `num_partitions`
+  partitions per replica, and `main_replica` as the main replica of the
+  system deployment
+  """
+  @spec new(non_neg_integer(), non_neg_integer(), atom()) :: %Configuration{}
+  def new(num_replicas, num_partitions, main_replica) do
     %Configuration{
       num_replicas: num_replicas,
-      num_partitions: num_partitions
+      num_partitions: num_partitions,
+      main_replica: main_replica
     }
+  end
+
+  @doc """
+  Updates the main replica for a given Configuration 
+  """
+  @spec set_main_replica(%Configuration{}, atom()) :: %Configuration{}
+  def set_main_replica(configuration, replica) do
+    %{configuration | main_replica: replica}
   end
 
   @doc """
@@ -52,6 +82,19 @@ defmodule Configuration do
     Enum.map(partitions, 
       fn partition ->
         Component.id(_replica=replica, _partition=partition, _type=:storage)
+      end
+    )
+  end
+
+  @doc """
+  Returns a list view of Sequencer components for a replica in the given Configuration
+  """
+  @spec get_sequencer_view(%Configuration{}, atom()) :: [atom()]
+  def get_sequencer_view(configuration, replica) do
+    partitions = Configuration.get_partition_view(configuration)
+    Enum.map(partitions, 
+      fn partition ->
+        Component.id(_replica=replica, _partition=partition, _type=:sequencer)
       end
     )
   end

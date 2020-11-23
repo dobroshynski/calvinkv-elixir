@@ -25,6 +25,16 @@ defmodule ConfigurationTest do
     assert replicas == [:A, :B, :C]
   end
 
+  test "Configuration main replica works as expected" do
+    # create a configuration without setting a main replica
+    # which should default to the first replica A
+    configuration = Configuration.new(_num_replicas=3, _num_partitions=2)
+    assert configuration.main_replica == :A
+
+    configuration = Configuration.new(_num_replicas=3, _num_partitions=2, _main_replica=:B)
+    assert configuration.main_replica == :B
+  end
+
   test "Configuration get_all_other_partitions() works as expected" do
     # create a configuration
     configuration = Configuration.new(_num_replicas=1, _num_partitions=3)
