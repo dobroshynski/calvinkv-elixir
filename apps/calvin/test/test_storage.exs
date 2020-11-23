@@ -96,7 +96,7 @@ defmodule StorageTest do
         :client,
         fn ->
           # connect to the Sequencer on partition 1
-          default_sequencer = List.to_atom('A1-sequencer')
+          default_sequencer = Component.id(_replica=:A, _partition=1, _type=:sequencer)
           client = Client.connect_to(default_sequencer)
 
           # send a couple of Transaction requests to the Sequencer
@@ -161,7 +161,7 @@ defmodule StorageTest do
       :client_1,
       fn ->
         # connect to the Sequencer on partition 1
-        partition1_sequencer = List.to_atom('A1-sequencer')
+        partition1_sequencer = Component.id(_replica=:A, _partition=1, _type=:sequencer)
         client = Client.connect_to(partition1_sequencer)
 
         # send a couple of Transaction requests to the Sequencer
@@ -190,7 +190,7 @@ defmodule StorageTest do
       :client_2,
       fn ->
         # connect to the Sequencer on partition 2
-        partition2_sequencer = List.to_atom('A2-sequencer')
+        partition2_sequencer = Component.id(_replica=:A, _partition=2, _type=:sequencer)
         client = Client.connect_to(partition2_sequencer)
 
         # send a couple of Transaction requests to the Sequencer

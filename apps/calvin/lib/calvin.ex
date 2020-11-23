@@ -309,7 +309,7 @@ defmodule Sequencer do
       fn partition ->
         # construct a unique id for a recipient Scheduler component within the current replica
         # given a partition
-        scheduler_id = List.to_atom(to_charlist(state.replica) ++ to_charlist(partition) ++ '-' ++ to_charlist(:scheduler))
+        scheduler_id = Component.id(_replica=state.replica, _partition=partition, _type=:scheduler)
         
         # send a BatchTransactionMessage to this specific Scheduler component
         send(scheduler_id, batch_tx_msg)
@@ -748,11 +748,16 @@ defmodule Component do
   """
   @spec id(%Storage{} | %Sequencer{} | %Scheduler{}) :: atom()
   def id(proc) do
-    replica = to_charlist(proc.replica)
-    partition = to_charlist(proc.partition)
-    type = to_charlist(proc.type)
+    Component.id(_replica=proc.replica, _partition=proc.partition, _type=proc.type)
+  end
 
-    List.to_atom(replica ++ partition ++ '-' ++ type)
+  @doc """
+  Returns an unique ID for a Component given the replica, partition, and
+  type of component
+  """
+  @spec id(atom(), non_neg_integer(), atom()) :: atom()
+  def id(replica, partition, type) do
+    List.to_atom(to_charlist(replica) ++ to_charlist(partition) ++ '-' ++ to_charlist(type))
   end
 
   @doc """

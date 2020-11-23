@@ -50,8 +50,8 @@ defmodule Configuration do
   def get_storage_view(configuration, replica) do
     partitions = Configuration.get_partition_view(configuration)
     Enum.map(partitions, 
-      fn partition -> 
-        List.to_atom(to_charlist(replica) ++ to_charlist(partition) ++ '-storage')
+      fn partition ->
+        Component.id(_replica=replica, _partition=partition, _type=:storage)
       end
     )
   end
