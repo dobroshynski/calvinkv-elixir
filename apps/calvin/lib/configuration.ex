@@ -44,6 +44,19 @@ defmodule Configuration do
   end
 
   @doc """
+  Returns a list view of Storage components for a replica in the given Configuration
+  """
+  @spec get_storage_view(%Configuration{}, atom()) :: [atom()]
+  def get_storage_view(configuration, replica) do
+    partitions = Configuration.get_partition_view(configuration)
+    Enum.map(partitions, 
+      fn partition -> 
+        List.to_atom(to_charlist(replica) ++ to_charlist(partition) ++ '-storage')
+      end
+    )
+  end
+
+  @doc """
   Returns a list of partitions other than the partition of a given component / process `proc`,
   given a Configuration
   """

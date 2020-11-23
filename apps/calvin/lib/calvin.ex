@@ -2,6 +2,88 @@
 # TODO: currently only supports basic KV operations by
 # exposing a simple CRUD in-memory storage interface
 
+# Calvin deployment module handling launch of Storage, Sequencer, and
+# Scheduler components given a Configuration
+
+defmodule Calvin do
+  import Emulation, only: [spawn: 2, send: 2]
+  import Kernel,
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+
+  # Helper function to launch num_partitions Sequencer components
+  # for a given replica with a given Configuration
+  defp launch_partitioned_sequencer(replica, num_partitions, configuration) do
+    # create as many Sequencer components as there are partitions
+    partition_view = Configuration.get_partition_view(configuration)
+    Enum.map(partition_view, 
+      fn partition -> 
+        sequencer_proc_partitioned = Sequencer.new(_replica=replica, _partition=partition, configuration)
+        sequencer_proc_id = Component.id(sequencer_proc_partitioned)
+
+        # spawn each Sequencer
+        spawn(sequencer_proc_id, fn -> Sequencer.start(sequencer_proc_partitioned) end)
+      end
+    )
+  end
+
+  # Helper function to launch num_partitions Scheduler components
+  # for a given replica with a given Configuration
+  defp launch_partitioned_scheduler(replica, num_partitions, configuration) do
+    # create as many Scheduler components as there are partitions
+    partition_view = Configuration.get_partition_view(configuration)
+    Enum.map(partition_view, 
+      fn partition -> 
+        scheduler_proc_partitioned = Scheduler.new(_replica=replica, _partition=partition, configuration)
+        scheduler_proc_id = Component.id(scheduler_proc_partitioned)
+
+        # spawn each Scheduler
+        spawn(scheduler_proc_id, fn -> Scheduler.start(scheduler_proc_partitioned) end)
+      end
+    )
+  end
+
+  # Helper function to launch num_partitions Storage components
+  # for a given replica with a given Configuration
+  defp launch_partitioned_storage(replica, num_partitions, configuration) do
+    # create as many Storage components as there are partitions
+    partition_view = Configuration.get_partition_view(configuration)
+    Enum.map(partition_view, 
+      fn partition -> 
+        storage_proc_partitioned = Storage.new(_replica=replica, _partition=partition)
+        storage_proc_id = Component.id(storage_proc_partitioned)
+
+        # spawn each Storage
+        spawn(storage_proc_id, fn -> Storage.start(storage_proc_partitioned) end)
+      end
+    )
+  end
+
+  @doc """
+  Launches a partitioned, replicated Calvin system given a Configuration
+  """
+  @spec launch(%Configuration{}) :: no_return()
+  def launch(configuration) do
+    num_partitions = configuration.num_partitions
+    num_replicas = configuration.num_replicas
+
+    # for each replica launch a partitioned Sequencer, Scheduler, and Storage
+    # component
+    replica_view = Configuration.get_replica_view(configuration)
+    Enum.map(replica_view, 
+      fn replica ->
+        # launch Sequencer components
+        launch_partitioned_sequencer(_replica=replica, _partitions=num_partitions, configuration)
+        # launch Scheduler components
+        launch_partitioned_scheduler(_replica=replica, _partitions=num_partitions, configuration)
+        # launch Storage components
+        launch_partitioned_storage(_replica=replica, _partitions=num_partitions, configuration)
+      end
+    )
+
+    IO.puts("Launched a Calvin deployment of #{num_replicas} replica(s), each partitioned across #{num_partitions} machines per replica")
+  end
+end
+
 # Storage component process for the Calvin system. This is an RSM that 
 # keeps a key-value store in memory and can write to disk or 
 # take snapshots to persist data, but overall we assume this component
