@@ -284,11 +284,11 @@ defmodule Sequencer do
   end
 
   @doc """
-  Sends out BatchTransactionMessage messages to all Schedulers on every parition 
-  within the same replica as the current Sequencer process / component
+  Sends out BatchTransactionMessage messages in broadcast manner to all Schedulers on every
+  partition within the same replica as the current Sequencer process / component
   """
-  @spec send_current_epoch_batch(%Sequencer{}) :: no_return()
-  def send_current_epoch_batch(state) do
+  @spec broadcast_batch(%Sequencer{}) :: no_return()
+  def broadcast_batch(state) do
     batch_tx_msg = %BatchTransactionMessage{
       sequencer_id: whoami(),
       epoch: state.current_epoch,
@@ -380,12 +380,53 @@ defmodule Sequencer do
         # continue listening for requests
         receive_requests(state)
 
+      # TODO: async replication mode supported only
+      # AsyncReplicateBatchRequest sent by the Sequencers on the main replica which notifies the Sequencers 
+      # on the secondary replicas of Transactions received during the given epoch and allows the
+      # Sequencer RSM to update it's state and move up the epoch to synchronize
+      {sequencer_sender, %AsyncReplicateBatchRequest{
+        epoch: epoch,
+        batch: batch
+      }} ->
+        IO.puts("[node #{whoami()}] received an AsyncReplicateBatchRequest from Sequencer #{sequencer_sender}
+        for epoch: #{epoch}
+        batch: #{inspect(batch)}")
+
+        # set the current epoch to the one that the main replica has sent via the 
+        # AsyncReplicateBatchRequest in order to sync up and set the log to be
+        # empty initially
+        state = %{state | current_epoch: epoch}
+        state = initialize_log(state, state.current_epoch)
+        
+        # append all of the Transactions received from the main replica to the
+        # local log using a reduction to continiously update the state of the
+        # Sequencer RSM as we are adding Transaction entries with `add_to_log` 
+        state = Enum.reduce(batch, state, fn tx, acc -> add_to_log(acc, tx) end)
+
+        IO.puts("[node #{whoami()}] log state after reduction: #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+
+        # now that the log for the epoch is synced up with the Sequencer on the main replica
+        # within this Sequencer's replica group, send out a BatchTransactionMessage to all of
+        # the Schedulers within the same replica as the current Sequencer
+        broadcast_batch(state)
+
+        # continue listening for requests
+        receive_requests(state)
+
+      # TODO: async replication mode supported only
       # epoch timer message signifying the end of the current epoch
+      # with async replication the epoch timer is active on Sequencers on the 
+      # main replica
       :timer ->
         IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
 
-        # send out a BatchTransactionMessage to the Scheduler
-        send_current_epoch_batch(state)
+        # TODO: async replication mode supported only
+        # asynchronously replicate this batch to other Sequencers
+        replicate_batch_async(state)
+
+        # send out a BatchTransactionMessage to all of the Schedulers within the
+        # same replica as the current Sequencer
+        broadcast_batch(state)
 
         # increment the epoch from current -> current + 1
         state = increment_epoch(state)
@@ -404,8 +445,65 @@ defmodule Sequencer do
   end
 
   @doc """
+  Asynchronously replicates the batch of Transactions received on the current Sequencer RSM,
+  which resides on the main replica, to all of the Sequencer components on other replicas that 
+  are in this Sequencer's replication group
+  """
+  @spec replicate_batch_async(%Sequencer{}) :: no_return()
+  def replicate_batch_async(state) do
+    # create the async replication request message
+    async_replicate_msg = %AsyncReplicateBatchRequest{
+      epoch: state.current_epoch,
+      # log of Transactions for the current epoch
+      batch: Map.get(state.epoch_logs, state.current_epoch)
+    }
+    # get the unique ids of all other replicas other than the current replica, since
+    # those comprise the replication group to which the current main replica has to
+    # replicate the batch to
+    replication_group_view = Configuration.get_all_other_replicas(state, state.configuration)
+    
+    # send requests to all replicas within this replication group of the partition of 
+    # the current Sequencer component
+    Enum.map(replication_group_view, 
+      fn replica ->
+        # construct a unique id for a recipient Sequencer component within 
+        # the replication group
+        sequencer_id = Component.id(_replica=replica, _partition=state.partition, _type=:sequencer)
+        
+        # send the message to the replica Sequencer
+        send(sequencer_id, async_replicate_msg)
+      end
+    )
+  end
+
+  @doc """
+  Starts the epoch timer of the Sequencer RSM if the Sequencer is part of the main replica
+  """
+  @spec start_epoch_timer(%Sequencer{}) :: %Sequencer{}
+  def start_epoch_timer(state) do
+    if Component.on_main_replica?(state) do
+      new_epoch_timer = timer(state.epoch_timer_duration)
+      %{state | epoch_timer: new_epoch_timer}
+    else
+      state
+    end
+  end
+
+  @doc """
+  Initializes the local log for a given epoch on the Sequencer RSM 
+  """
+  @spec initialize_log(%Sequencer{}, non_neg_integer()) :: %Sequencer{}
+  def initialize_log(state, epoch) do
+    updated_epoch_logs = Map.put(state.epoch_logs, epoch, [])
+    %{state | epoch_logs: updated_epoch_logs}
+  end
+
+  @doc """
   Updates the Sequencer RSM to increment the current epoch by 1 and create a new empty log
-  for that epoch to hold client requests
+  for that epoch to hold client requests. If the Sequencer is part of the main replica, start
+  the timer for a duration of an epoch, otherwise don't since the epoch in secondary replicas
+  will be incremented by incoming ReplicateBatchRequest messages from Sequencers that are part
+  of the main replica
   """
   @spec increment_epoch(%Sequencer{}) :: %Sequencer{}
   def increment_epoch(state) do
@@ -416,15 +514,14 @@ defmodule Sequencer do
     IO.puts("[node #{whoami()}] incremented epoch from #{old_epoch} -> #{state.current_epoch}")
 
     # create an empty log for the current updated epoch in the RSM
-    updated_epoch_logs = Map.put(state.epoch_logs, state.current_epoch, [])
-    state = %{state | epoch_logs: updated_epoch_logs}
+    state = initialize_log(state, state.current_epoch)
 
     IO.puts("[node #{whoami()}] current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
 
-    # start the timer for duration of epoch
-    new_epoch_timer = timer(state.epoch_timer_duration)
-    state = %{state | epoch_timer: new_epoch_timer}
-    
+    # if on main replica, start the timer for duration of epoch
+    # TODO: async replication mode supported only
+    state = start_epoch_timer(state)
+
     state
   end
 

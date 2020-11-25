@@ -280,4 +280,69 @@ defmodule StorageTest do
   after
     Emulation.terminate()
   end
+
+  test "Requests are eventually replicated to non-main secondary replicas" do
+    Emulation.init()
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
+
+    # create a configuration with 3 replicas
+    configuration = Configuration.new(_num_replicas=3, _num_partitions=2, _main_replica=:A)
+    
+    # launch the Calvin components
+    Calvin.launch(configuration)
+
+    spawn(
+      :client,
+      fn ->
+        # connect to the Sequencer on the main replica
+        sequencer = Component.id(_replica=:A, _partition=1, _type=:sequencer)
+        client = Client.connect_to(sequencer)
+
+        # send a couple of Transaction requests to the Sequencer
+        Client.send_create_tx(client, :a, 1)
+        Client.send_create_tx(client, :b, 2)
+        
+        # wait for this epoch to finish
+        :timer.sleep(3000)
+
+        # get the key-value stores from every Storage component on the secondary B replica
+        # to check if Transactions sent to A were replicated to B and executed against the
+        # Storage components
+        kv_stores = get_kv_stores(
+          _ids=Configuration.get_storage_view(configuration, :B)
+        )
+
+        # check that every Storage node has the expected key-value store
+        Enum.map(kv_stores,
+          fn kv_store ->
+            assert Map.get(kv_store, :a) == 1
+            assert Map.get(kv_store, :b) == 2
+          end
+        )
+
+        # perform the same check on the C replica
+        kv_stores = get_kv_stores(
+          _ids=Configuration.get_storage_view(configuration, :C)
+        )
+
+        # check that every Storage node has the expected key-value store
+        Enum.map(kv_stores,
+          fn kv_store ->
+            assert Map.get(kv_store, :a) == 1
+            assert Map.get(kv_store, :b) == 2
+          end
+        )
+      end
+    )
+
+    # timeout after a couple epochs
+    wait_timeout = 5000
+
+    receive do
+    after
+      wait_timeout -> :ok
+    end
+  after
+    Emulation.terminate()
+  end
 end
