@@ -13,7 +13,10 @@ defmodule SchedulerTest do
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
 
     # default replica :A and partition 1 since only one "physical" node
     replica = :A
@@ -77,7 +80,10 @@ defmodule SchedulerTest do
     # create a configuration
     # single replica partitioned across 3 nodes
     num_partitions = 3
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=num_partitions)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=num_partitions)
+    )
 
     # create as many Sequencer components as there are partitions
     Enum.map(1..num_partitions, 

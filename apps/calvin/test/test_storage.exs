@@ -86,7 +86,10 @@ defmodule StorageTest do
     # create a configuration
     # single replica partitioned across 3 nodes
     replica = :A
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=3)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=3)
+    )
 
     # launch the Calvin components
     Calvin.launch(configuration)
@@ -151,7 +154,10 @@ defmodule StorageTest do
     # create a configuration
     # single replica partitioned across 3 nodes
     replica = :A
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=3)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=3)
+    )
     
     # launch the Calvin components
     Calvin.launch(configuration)
@@ -233,7 +239,10 @@ defmodule StorageTest do
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration with 2 replicas
-    configuration = Configuration.new(_num_replicas=2, _num_partitions=3, _main_replica=:A)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=2, _main_replica=:A), 
+      _partition=PartitionScheme.new(_num_partitions=3)
+    )
     
     # launch the Calvin components
     Calvin.launch(configuration)
@@ -256,7 +265,7 @@ defmodule StorageTest do
         # get the key-value stores from every Storage component on the main replica, since
         # the Transaction requests should have been forwarded to that replica
         kv_stores = get_kv_stores(
-          _ids=Configuration.get_storage_view(configuration, configuration.main_replica)
+          _ids=Configuration.get_storage_view(configuration, configuration.replication_scheme.main_replica)
         )
 
         # check that every Storage node has the expected key-value store
@@ -286,7 +295,10 @@ defmodule StorageTest do
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration with 3 replicas
-    configuration = Configuration.new(_num_replicas=3, _num_partitions=2, _main_replica=:A)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=3, _main_replica=:A), 
+      _partition=PartitionScheme.new(_num_partitions=2)
+    )
     
     # launch the Calvin components
     Calvin.launch(configuration)

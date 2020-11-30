@@ -1,76 +1,46 @@
 # Module for managing a Calvin deployment configuration. Every component
 # can store a basic instance of Configuration to be aware of the number
-# of replicas and / or partitions in the Calvin deployment and can 
-# call utility functions for generating views of relevant components.
+# of replicas and / or partitions in the Calvin deployment via a PartitionScheme 
+# or a type of ReplicationScheme, and can call utility functions for generating
+# views of relevant components.
 
 defmodule Configuration do
-  @enforce_keys [:num_replicas, :num_partitions]
+  alias __MODULE__
+
+  @enforce_keys [:replication_scheme, :partition_scheme]
 
   defstruct(
-    num_replicas: nil,
-    num_partitions: nil,
-    # for async replication, storing which replica is the 
-    # main replica
-    main_replica: nil
+    replication_scheme: nil,
+    partition_scheme: nil
   )
 
   @doc """
-  Creates a new Configuration with `num_replicas` replicas and `num_partitions`
-  partitions per replica
+  Creates a new Configuration with `partition_scheme` for partitioning 
+  configuration and `replication_scheme` for managing replication.
+  TODO: extend to accept synchronous replication
   """
-  @spec new(non_neg_integer(), non_neg_integer()) :: %Configuration{}
-  def new(num_replicas, num_partitions) do
-    configuration = %Configuration{
-      num_replicas: num_replicas,
-      num_partitions: num_partitions,
-    }
-
-    # if no main replica was provided, default to the 
-    # name of the first replica
-    replicas = Configuration.get_replica_view(configuration)
-    Configuration.set_main_replica(configuration, _replica=Enum.at(replicas, 0))
-  end
-
-  @doc """
-  Creates a new Configuration with `num_replicas` replicas, `num_partitions`
-  partitions per replica, and `main_replica` as the main replica of the
-  system deployment
-  """
-  @spec new(non_neg_integer(), non_neg_integer(), atom()) :: %Configuration{}
-  def new(num_replicas, num_partitions, main_replica) do
-    %Configuration{
-      num_replicas: num_replicas,
-      num_partitions: num_partitions,
-      main_replica: main_replica
+  @spec new(%AsyncReplicationScheme{}, %PartitionScheme{}) :: %Configuration{}
+  def new(replication_scheme, partition_scheme) do
+    %Configuration {
+      replication_scheme: replication_scheme,
+      partition_scheme: partition_scheme
     }
   end
 
   @doc """
-  Updates the main replica for a given Configuration 
-  """
-  @spec set_main_replica(%Configuration{}, atom()) :: %Configuration{}
-  def set_main_replica(configuration, replica) do
-    %{configuration | main_replica: replica}
-  end
-
-  @doc """
-  Returns a list view of partitions per replica in the given Configuration
+  Returns a list view of partitions per replica in the given Configuration's PartitionScheme
   """
   @spec get_partition_view(%Configuration{}) :: [non_neg_integer()]
   def get_partition_view(configuration) do
-    partion_range = 1..configuration.num_partitions
-    Enum.to_list partion_range
+    PartitionScheme.get_partition_view(configuration.partition_scheme)
   end
   
   @doc """
-  Returns a list view of replicas in the given Configuration
+  Returns a list view of replicas in the given Configuration's ReplicationScheme
   """
   @spec get_replica_view(%Configuration{}) :: [atom()]
   def get_replica_view(configuration) do
-    max_replica = configuration.num_replicas - 1
-    replica_range = 0..max_replica
-    # 'A' is 65 codepoint, so we use that to convert 0,1,2 -> :A,:B,:C and so on
-    Enum.map(replica_range, fn n -> List.to_atom([n + 65]) end)
+    ReplicationScheme.get_replica_view(configuration.replication_scheme)
   end
 
   @doc """
@@ -92,30 +62,10 @@ defmodule Configuration do
   @spec get_sequencer_view(%Configuration{}, atom()) :: [atom()]
   def get_sequencer_view(configuration, replica) do
     partitions = Configuration.get_partition_view(configuration)
-    Enum.map(partitions, 
+    Enum.map(partitions,
       fn partition ->
         Component.id(_replica=replica, _partition=partition, _type=:sequencer)
       end
     )
-  end
-
-  @doc """
-  Returns a list of partitions other than the partition of a given component / process `proc`,
-  given a Configuration
-  """
-  @spec get_all_other_partitions(%Storage{} | %Sequencer{} | %Scheduler{}, %Configuration{}) :: [non_neg_integer()]
-  def get_all_other_partitions(proc, configuration) do
-    partitions = Configuration.get_partition_view(configuration)
-    Enum.filter(partitions, fn partition -> partition != proc.partition end)
-  end
-
-  @doc """
-  Returns a list of replicas other than the replica of a given component / process `proc`,
-  given a Configuration
-  """
-  @spec get_all_other_replicas(%Storage{} | %Sequencer{} | %Scheduler{}, %Configuration{}) :: [atom()]
-  def get_all_other_replicas(proc, configuration) do
-    replicas = Configuration.get_replica_view(configuration)
-    Enum.filter(replicas, fn replica -> replica != proc.replica end)
   end
 end

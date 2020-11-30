@@ -31,7 +31,10 @@ defmodule SequencerTest do
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
 
     # create a Sequencer component and get it's unique id
     sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)
@@ -88,7 +91,10 @@ defmodule SequencerTest do
     Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
 
     # create a Sequencer component and get it's unique id
     sequencer_proc = Sequencer.new(_replica=:A, _partition=1, configuration)

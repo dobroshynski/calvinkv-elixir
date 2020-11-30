@@ -63,8 +63,8 @@ defmodule Calvin do
   """
   @spec launch(%Configuration{}) :: no_return()
   def launch(configuration) do
-    num_partitions = configuration.num_partitions
-    num_replicas = configuration.num_replicas
+    num_partitions = configuration.partition_scheme.num_partitions
+    num_replicas = configuration.replication_scheme.num_replicas
 
     # for each replica launch a partitioned Sequencer, Scheduler, and Storage
     # component
@@ -325,7 +325,7 @@ defmodule Sequencer do
   """
   @spec forward_request(%Sequencer{}, %Transaction{}) :: no_return()
   def forward_request(state, tx) do
-    main_replica = state.configuration.main_replica
+    main_replica = state.configuration.replication_scheme.main_replica
     # get a list of Sequencers on the main replica that we can forward this Transaction to
     sequencers = Configuration.get_sequencer_view(state.configuration, _replica=main_replica)
 
@@ -460,7 +460,7 @@ defmodule Sequencer do
     # get the unique ids of all other replicas other than the current replica, since
     # those comprise the replication group to which the current main replica has to
     # replicate the batch to
-    replication_group_view = Configuration.get_all_other_replicas(state, state.configuration)
+    replication_group_view = ReplicationScheme.get_all_other_replicas(state, state.configuration.replication_scheme)
     
     # send requests to all replicas within this replication group of the partition of 
     # the current Sequencer component
@@ -645,7 +645,7 @@ defmodule Scheduler do
   """
   @spec attempt_tx_interleave(%Scheduler{}) :: %Scheduler{}
   def attempt_tx_interleave(state) do
-    expected = state.configuration.num_partitions
+    expected = state.configuration.partition_scheme.num_partitions
     received = length(Map.get(state.partial_orders, state.processing_epoch, []))
 
     IO.puts("[node #{whoami()}] attempting to interleave txs for epoch #{state.processing_epoch}
@@ -891,7 +891,7 @@ defmodule Component do
   """
   @spec on_main_replica?(%Storage{} | %Sequencer{} | %Scheduler{}) :: boolean()
   def on_main_replica?(proc) do
-    main_replica = proc.configuration.main_replica
+    main_replica = proc.configuration.replication_scheme.main_replica
     replica = proc.replica
     if replica == main_replica do
       true

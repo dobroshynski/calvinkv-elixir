@@ -1,13 +1,17 @@
 defmodule ComponentTest do
   use ExUnit.Case
   doctest Component
+  doctest Configuration
 
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
   test "Component id/1 works as expected" do
     # create a configuration
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
 
     # create a Sequencer process
     sequencer = Sequencer.new(_replica=:A, _partition=1, configuration)
@@ -29,7 +33,11 @@ defmodule ComponentTest do
 
   test "Component `physical` node id generation works as expected" do
     # create a configuration
-    configuration = Configuration.new(_num_replicas=1, _num_partitions=1)
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
+
     # create a Sequencer process
     sequencer = Sequencer.new(_replica=:A, _partition=1, configuration)
     # get the `physical` node id
