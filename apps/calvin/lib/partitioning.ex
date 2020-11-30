@@ -4,12 +4,12 @@
 defmodule PartitionScheme do
   alias __MODULE__
 
-  @enforce_keys [:num_partitions, :partition_map]
+  @enforce_keys [:num_partitions, :key_partition_map]
 
   defstruct(
     num_partitions: nil,
     # mapping of key to partition which the key is assigned to
-    partition_map: nil
+    key_partition_map: nil
   )
 
   @doc """
@@ -54,11 +54,11 @@ defmodule PartitionScheme do
   """
   @spec new(non_neg_integer()) :: %PartitionScheme{}
   def new(num_partitions) do
-    partition_map = PartitionScheme.generate_key_partition_map(num_partitions)
+    key_partition_map = PartitionScheme.generate_key_partition_map(num_partitions)
     
     %PartitionScheme{
       num_partitions: num_partitions,
-      partition_map: partition_map
+      key_partition_map: key_partition_map
     }
   end
 

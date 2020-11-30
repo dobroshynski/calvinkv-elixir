@@ -42,4 +42,34 @@ defmodule PartitioningTest do
     assert length(other_partitions) == 2, "Expected the number of other partitions to be 2"
     assert other_partitions == [1, 3]
   end
+
+  test "PartitionScheme generate_key_partition_map() works as expected" do
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
+    partition_map = configuration.partition_scheme.key_partition_map
+
+    # expecting all keys in partition map to map to partition 1 since
+    # the Configuration is created with a single partition
+
+    assert Map.get(partition_map, :a) == 1
+    assert Map.get(partition_map, :z) == 1
+
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=4)
+    )
+    partition_map = configuration.partition_scheme.key_partition_map
+
+    # expecting the partition map to partition the key range
+    # into 4 chunks of [a-g] -> 1, [h-n] -> 2, [o-u] -> 3, [v-z] -> 4
+
+    assert Map.get(partition_map, :a) == 1
+    assert Map.get(partition_map, :h) == 2
+    assert Map.get(partition_map, :o) == 3
+    assert Map.get(partition_map, :z) == 4
+  end
 end
