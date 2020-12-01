@@ -121,7 +121,7 @@ defmodule SchedulerTest do
 
           # send a couple of Transaction requests to the Sequencer
           Client.send_create_tx(client, :a, 1)
-          Client.send_create_tx(client, :b, 2)
+          Client.send_create_tx(client, :z, 2)
 
           # wait for this epoch to finish, then send some more requests
           :timer.sleep(3000)

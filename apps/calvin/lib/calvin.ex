@@ -285,28 +285,43 @@ defmodule Sequencer do
 
   @doc """
   Sends out BatchTransactionMessage messages in broadcast manner to all Schedulers on every
-  partition within the same replica as the current Sequencer process / component
+  partition within the same replica as the current Sequencer process / component. Each message
+  contains only the batch of Transactions that the recipient Scheduler needs to participate in, 
+  which is decided by the PartitionScheme as part of the current Configuration
   """
   @spec broadcast_batch(%Sequencer{}) :: no_return()
   def broadcast_batch(state) do
-    batch_tx_msg = %BatchTransactionMessage{
-      sequencer_id: whoami(),
-      epoch: state.current_epoch,
-      # log of Transactions for the current epoch
-      batch: Map.get(state.epoch_logs, state.current_epoch)
-    }
+    # all of the Transactions for the current epoch acquired by this Sequencer
+    batch = Map.get(state.epoch_logs, state.current_epoch)
 
-    IO.puts("[node #{whoami()}] created a BatchTransactionMessage: #{inspect(batch_tx_msg)}")
+    # split the log of Transactions for the current epoch by partitioning based on the
+    # current PartitionScheme
+    partitioned_tx_batches = PartitionScheme.partition_transactions(
+      _tx_batch=batch,
+      _partition_scheme=state.configuration.partition_scheme
+    )
+    IO.puts("[node #{whoami()}] partitioned batch for epoch #{state.current_epoch}: #{inspect(partitioned_tx_batches)}")
 
     # get all of the partition numbers in a replica via the current Configuration
     partition_view = Configuration.get_partition_view(state.configuration)
     IO.puts("[node #{whoami()}] list of partitions per replica: #{inspect(partition_view)}")
 
-
-    # send out the BatchTransactionMessage to all Schedulers within the same replica as the
-    # current Sequencer process / component 
+    # send out BatchTransactionMessages to all Schedulers within the same replica as the
+    # current Sequencer process / component
     Enum.map(partition_view, 
       fn partition ->
+        # construct a BatchTransactionMessage with the Transactions in the partitioned batch
+        # that need to be sent to this particular partition within the replica
+        batch_tx_msg = %BatchTransactionMessage{
+          sequencer_id: whoami(),
+          epoch: state.current_epoch,
+          # log of Transactions for this particular partition or empty log
+          # if no Transactions were acquired that need to be sent to this
+          # partition
+          batch: Map.get(partitioned_tx_batches, partition, [])
+        }
+        IO.puts("[node #{whoami()}] created a BatchTransactionMessage: #{inspect(batch_tx_msg)}")
+
         # construct a unique id for a recipient Scheduler component within the current replica
         # given a partition
         scheduler_id = Component.id(_replica=state.replica, _partition=partition, _type=:scheduler)

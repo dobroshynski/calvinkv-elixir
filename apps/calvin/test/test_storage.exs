@@ -105,6 +105,7 @@ defmodule StorageTest do
           # send a couple of Transaction requests to the Sequencer
           Client.send_create_tx(client, :a, 1)
           Client.send_create_tx(client, :b, 2)
+          Client.send_create_tx(client, :z, 1)
 
           Client.send_create_tx(client, :d, 1)
           Client.send_update_tx(client, :d, 0)
@@ -117,13 +118,20 @@ defmodule StorageTest do
           kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
           # check that every Storage node has the expected key-value store
-          Enum.map(kv_stores,
-            fn kv_store ->
-              assert Map.get(kv_store, :a) == 1
-              assert Map.get(kv_store, :b) == 2
-              assert Map.get(kv_store, :d) == nil
-            end
-          )
+          # based on the current PartitionScheme with 3 partitions
+
+          # partition 1 Storage should have the `a` and `b` records
+          kv_store = Enum.at(kv_stores, 0)
+          assert Map.get(kv_store, :a) == 1
+          assert Map.get(kv_store, :b) == 2
+
+          # partition 2 Storage shouldn't have any data
+          kv_store = Enum.at(kv_stores, 1)
+          assert kv_store == %{}
+
+          # partition 2 Storage should have the `z` record
+          kv_store = Enum.at(kv_stores, 2)
+          assert Map.get(kv_store, :z) == 1
 
           Client.send_create_tx(client, :c, 3)
         end
@@ -181,13 +189,20 @@ defmodule StorageTest do
         kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
         # check that every Storage node has the expected key-value store
-        Enum.map(kv_stores,
-          fn kv_store ->
-            assert Map.get(kv_store, :a) == 1
-            assert Map.get(kv_store, :b) == 1
-            assert Map.get(kv_store, :c) == 1
-          end
-        )
+        # based on the current PartitionScheme with 3 partitions
+
+        # partition 1 Storage should have the `a`, `b`, `c` records
+        kv_store_part_1 = Enum.at(kv_stores, 0)
+        assert Map.get(kv_store_part_1, :a) == 1
+        assert Map.get(kv_store_part_1, :b) == 1
+        assert Map.get(kv_store_part_1, :c) == 1
+
+        # partition 2, 3 Storage shouldn't have any data
+        kv_store_part_2 = Enum.at(kv_stores, 1)
+        kv_store_part_3 = Enum.at(kv_stores, 2)
+
+        assert kv_store_part_2 == %{}
+        assert kv_store_part_3 == %{}
       end
     )
 
@@ -213,13 +228,20 @@ defmodule StorageTest do
         kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
         # check that every Storage node has the expected key-value store
-        Enum.map(kv_stores,
-          fn kv_store ->
-            assert Map.get(kv_store, :a) == 1
-            assert Map.get(kv_store, :b) == 1
-            assert Map.get(kv_store, :c) == 1
-          end
-        )
+        # based on the current PartitionScheme with 3 partitions
+
+        # partition 1 Storage should have the `a`, `b`, `c` records
+        kv_store_part_1 = Enum.at(kv_stores, 0)
+        assert Map.get(kv_store_part_1, :a) == 1
+        assert Map.get(kv_store_part_1, :b) == 1
+        assert Map.get(kv_store_part_1, :c) == 1
+
+        # partition 2, 3 Storage shouldn't have any data
+        kv_store_part_2 = Enum.at(kv_stores, 1)
+        kv_store_part_3 = Enum.at(kv_stores, 2)
+
+        assert kv_store_part_2 == %{}
+        assert kv_store_part_3 == %{}
       end
     )
     
@@ -269,13 +291,20 @@ defmodule StorageTest do
         )
 
         # check that every Storage node has the expected key-value store
-        Enum.map(kv_stores,
-          fn kv_store ->
-            assert Map.get(kv_store, :a) == 1
-            assert Map.get(kv_store, :b) == 2
-            assert Map.get(kv_store, :c) == 3
-          end
-        )
+        # based on the current PartitionScheme with 3 partitions
+
+        # partition 1 Storage should have the `a`, `b`, `c` records
+        kv_store_part_1 = Enum.at(kv_stores, 0)
+        assert Map.get(kv_store_part_1, :a) == 1
+        assert Map.get(kv_store_part_1, :b) == 2
+        assert Map.get(kv_store_part_1, :c) == 3
+
+        # partition 2, 3 Storage shouldn't have any data
+        kv_store_part_2 = Enum.at(kv_stores, 1)
+        kv_store_part_3 = Enum.at(kv_stores, 2)
+
+        assert kv_store_part_2 == %{}
+        assert kv_store_part_3 == %{}
       end
     )
 
@@ -325,25 +354,37 @@ defmodule StorageTest do
         )
 
         # check that every Storage node has the expected key-value store
-        Enum.map(kv_stores,
-          fn kv_store ->
-            assert Map.get(kv_store, :a) == 1
-            assert Map.get(kv_store, :b) == 2
-          end
-        )
+        # storage on partition 1 has partition key range of a->m so should
+        # contain both `a` and `b`
+        kv_store = Enum.at(kv_stores, 0)
+
+        assert Map.get(kv_store, :a) == 1
+        assert Map.get(kv_store, :b) == 2
+
+        # storage on partition 2 has partition key range of n->z so shouldn't
+        # contain any data
+        kv_store = Enum.at(kv_stores, 1)
+
+        assert kv_store == %{}
+        assert Map.get(kv_store, :a) == nil
+        assert Map.get(kv_store, :b) == nil
 
         # perform the same check on the C replica
         kv_stores = get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :C)
         )
 
-        # check that every Storage node has the expected key-value store
-        Enum.map(kv_stores,
-          fn kv_store ->
-            assert Map.get(kv_store, :a) == 1
-            assert Map.get(kv_store, :b) == 2
-          end
-        )
+        # storage on partition 1 has partition key range of a->m so should
+        # contain both `a` and `b`
+        kv_store = Enum.at(kv_stores, 0)
+
+        assert Map.get(kv_store, :a) == 1
+        assert Map.get(kv_store, :b) == 2
+
+        # storage on partition 2 has partition key range of n->z so shouldn't
+        # contain any data
+        kv_store = Enum.at(kv_stores, 1)
+        assert kv_store == %{}
       end
     )
 

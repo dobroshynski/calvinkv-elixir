@@ -75,6 +75,23 @@ defmodule PartitionScheme do
   end
 
   @doc """
+  Given a batch of Transactions and a PartitionScheme, returns a map of partitioned Transactions
+  in the form of {partition number -> Transaction batch for that partition}
+  """
+  @spec partition_transactions([%Transaction{}], %PartitionScheme{}) :: %{}
+  def partition_transactions(tx_batch, partition_scheme) do
+    # iterate the batch of all Transactions and reduce into a map of {partition -> Transactions}
+    Enum.reduce(tx_batch, %{}, 
+      fn tx, acc ->
+        # get the partition number that this Transaction maps to in the partition key map for the
+        # given PartitionScheme
+        partition = PartitionScheme.partition_for_transaction(_tx=tx, partition_scheme)
+        Map.put(acc, partition, Map.get(acc, partition, []) ++ [tx])
+      end
+    )
+  end
+
+  @doc """
   Creates a new PartitionScheme with `num_partitions` partitions per replica and generates a
   partition key map in order to associate Transactions with partitions
   """
