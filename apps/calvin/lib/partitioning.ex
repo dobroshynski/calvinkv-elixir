@@ -4,12 +4,12 @@
 defmodule PartitionScheme do
   alias __MODULE__
 
-  @enforce_keys [:num_partitions, :key_partition_map]
+  @enforce_keys [:num_partitions, :partition_key_map]
 
   defstruct(
     num_partitions: nil,
     # mapping of key to partition which the key is assigned to
-    key_partition_map: nil
+    partition_key_map: nil
   )
 
   @doc """
@@ -23,8 +23,8 @@ defmodule PartitionScheme do
   Then the maps are combined into a single map of {key -> partition} such that for each key in the 
   range of a->z, based on how many partitions we have, we have a corresponding partition assigned
   """
-  @spec generate_key_partition_map(non_neg_integer()) :: %{}
-  def generate_key_partition_map(num_partitions) do
+  @spec generate_partition_key_map(non_neg_integer()) :: %{}
+  def generate_partition_key_map(num_partitions) do
     # generate a range of keys from a -> z
     key_range = Enum.map(0..25, fn n -> List.to_atom([n + 97]) end)
 
@@ -48,17 +48,42 @@ defmodule PartitionScheme do
     Enum.reduce(key_maps, %{}, fn map, acc -> Map.merge(acc, map) end)
   end
 
+  @doc """
+  Converts any key of type atom() to a partition key, which is in the range of [a -> z]
+  """
+  @spec to_partition_key(atom()) :: atom()
+  def to_partition_key(val) do
+    # convert the atom to string, then take the first character and convert it to lowercase
+    key_string = String.downcase(String.at(to_string(val), 0))
+    # convert the string back to atom
+    String.to_atom(key_string)
+  end
+
+  @doc """
+  Given a Transaction and a PartitionScheme, returns the number of the partition that the given
+  Transaction needs to be forwarded to. The mapping is based on the `key` of the Transaction
+  and uses the `to_partition_key/1` function to convert the Transaction key to a partition key
+  and look up the associated partitioned number that has been assigned to this partition key
+  in PartitionScheme `partition_key_map`
+  """
+  @spec partition_for_transaction(%Transaction{}, %PartitionScheme{}) :: non_neg_integer()
+  def partition_for_transaction(tx, partition_scheme) do
+    # convert whatever the key for the Transaction is to a partition key and
+    # use the partition key map to look up which partition is associated with this
+    # Transaction
+    Map.get(partition_scheme.partition_key_map, to_partition_key(_value=tx.key))
+  end
 
   @doc """
   Creates a new PartitionScheme with `num_partitions` partitions per replica
   """
   @spec new(non_neg_integer()) :: %PartitionScheme{}
   def new(num_partitions) do
-    key_partition_map = PartitionScheme.generate_key_partition_map(num_partitions)
-    
+    partition_key_map = PartitionScheme.generate_partition_key_map(num_partitions)
+  
     %PartitionScheme{
       num_partitions: num_partitions,
-      key_partition_map: key_partition_map
+      partition_key_map: partition_key_map
     }
   end
 

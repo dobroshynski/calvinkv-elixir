@@ -49,7 +49,7 @@ defmodule PartitioningTest do
       _replication=AsyncReplicationScheme.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=1)
     )
-    partition_map = configuration.partition_scheme.key_partition_map
+    partition_map = configuration.partition_scheme.partition_key_map
 
     # expecting all keys in partition map to map to partition 1 since
     # the Configuration is created with a single partition
@@ -62,7 +62,7 @@ defmodule PartitioningTest do
       _replication=AsyncReplicationScheme.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=4)
     )
-    partition_map = configuration.partition_scheme.key_partition_map
+    partition_map = configuration.partition_scheme.partition_key_map
 
     # expecting the partition map to partition the key range
     # into 4 chunks of [a-g] -> 1, [h-n] -> 2, [o-u] -> 3, [v-z] -> 4
@@ -71,5 +71,42 @@ defmodule PartitioningTest do
     assert Map.get(partition_map, :h) == 2
     assert Map.get(partition_map, :o) == 3
     assert Map.get(partition_map, :z) == 4
+  end
+
+  test "PartitionScheme partition_for_transaction() works as expected" do
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
+    partition_scheme = configuration.partition_scheme
+
+    # create a couple of Transactions
+    tx1 = Transaction.create(:a, 1)
+    tx2 = Transaction.create(:z, 1)
+
+    # make sure that the correct partition is assigned to each Transaction based 
+    # on the Transaction key, which determines the position in the PartitionScheme's
+    # partition key map
+    assert PartitionScheme.partition_for_transaction(tx1, partition_scheme) == 1
+    assert PartitionScheme.partition_for_transaction(tx2, partition_scheme) == 1
+
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=2)
+    )
+    partition_scheme = configuration.partition_scheme
+
+    # create a couple of Transactions
+    tx1 = Transaction.create(:a, 1)
+    tx2 = Transaction.create(:m, 1)
+    tx3 = Transaction.create(:n, 1)
+    tx4 = Transaction.create(:z, 1)
+
+    assert PartitionScheme.partition_for_transaction(tx1, partition_scheme) == 1
+    assert PartitionScheme.partition_for_transaction(tx2, partition_scheme) == 1
+    assert PartitionScheme.partition_for_transaction(tx3, partition_scheme) == 2
+    assert PartitionScheme.partition_for_transaction(tx4, partition_scheme) == 2
   end
 end
