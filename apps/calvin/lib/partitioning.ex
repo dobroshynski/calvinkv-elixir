@@ -75,7 +75,8 @@ defmodule PartitionScheme do
   end
 
   @doc """
-  Creates a new PartitionScheme with `num_partitions` partitions per replica
+  Creates a new PartitionScheme with `num_partitions` partitions per replica and generates a
+  partition key map in order to associate Transactions with partitions
   """
   @spec new(non_neg_integer()) :: %PartitionScheme{}
   def new(num_partitions) do
