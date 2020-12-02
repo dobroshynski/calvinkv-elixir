@@ -60,21 +60,6 @@ defmodule PartitionScheme do
   end
 
   @doc """
-  Given a Transaction and a PartitionScheme, returns the number of the partition that the given
-  Transaction needs to be forwarded to. The mapping is based on the `key` of the Transaction
-  and uses the `to_partition_key/1` function to convert the Transaction key to a partition key
-  and look up the associated partitioned number that has been assigned to this partition key
-  in PartitionScheme `partition_key_map`
-  """
-  @spec partition_for_transaction(%Transaction{}, %PartitionScheme{}) :: non_neg_integer()
-  def partition_for_transaction(tx, partition_scheme) do
-    # convert whatever the key for the Transaction is to a partition key and
-    # use the partition key map to look up which partition is associated with this
-    # Transaction
-    Map.get(partition_scheme.partition_key_map, to_partition_key(_value=tx.key))
-  end
-
-  @doc """
   Given a batch of Transactions and a PartitionScheme, returns a map of partitioned Transactions
   in the form of {partition number -> Transaction batch for that partition}
   """
@@ -83,12 +68,46 @@ defmodule PartitionScheme do
     # iterate the batch of all Transactions and reduce into a map of {partition -> Transactions}
     Enum.reduce(tx_batch, %{}, 
       fn tx, acc ->
-        # get the partition number that this Transaction maps to in the partition key map for the
-        # given PartitionScheme
-        partition = PartitionScheme.partition_for_transaction(_tx=tx, partition_scheme)
-        Map.put(acc, partition, Map.get(acc, partition, []) ++ [tx])
+        # get the participating partitions for this Transaction and update the map for each
+        # partition
+        partitions = tx.participating_partitions
+        
+        # update the map of {partition -> Transactions} for each participating partition
+        Enum.reduce(partitions, acc, 
+          fn partition, updated_map -> 
+            Map.put(updated_map, partition, Map.get(updated_map, partition, []) ++ [tx])
+          end
+        )
       end
     )
+  end
+
+  @doc """
+  Given a batch of Transactions and a PartitionScheme, returns an updated batch of Transactions
+  with each Transaction's set of participating partitions generated according to the Transaction's
+  read and write sets
+  """
+  @spec generate_participating_partitions([%Transaction{}], %PartitionScheme{}) :: [%Transaction{}]
+  def generate_participating_partitions(tx_batch, partition_scheme) do
+    Enum.map(tx_batch,
+      fn tx ->
+        # combine the read and write sets for the Transaction to get all
+        # of the values that the Transactions accesses and convert to list form
+        read_write_set = MapSet.to_list(MapSet.union(tx.read_set, tx.write_set))
+
+        # get all of the partitions that the read-write set for the current Transaction
+        # will need to access and thus which need to participate
+        partitions = Enum.reduce(read_write_set, MapSet.new(), 
+          fn value, acc ->
+            # get the partition for the value in the read-write set
+            partition = Map.get(partition_scheme.partition_key_map, to_partition_key(_value=value))
+            # add to the set of partitions
+            MapSet.put(acc, partition)
+          end
+        )
+        # update the participating partitions for the Transaction
+        Transaction.set_participating_partitions(_transaction=tx, _partitions=partitions)
+      end)
   end
 
   @doc """

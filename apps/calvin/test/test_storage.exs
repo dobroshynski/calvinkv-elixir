@@ -339,9 +339,12 @@ defmodule StorageTest do
         sequencer = Component.id(_replica=:A, _partition=1, _type=:sequencer)
         client = Client.connect_to(sequencer)
 
-        # send a couple of Transaction requests to the Sequencer
-        Client.send_create_tx(client, :a, 1)
-        Client.send_create_tx(client, :b, 2)
+        # send a Transaction with a couple of operations to the Sequencer
+        tx = Transaction.new(_operations=[
+          Transaction.Op.create(:a, 1),
+          Transaction.Op.create(:b, 2)    
+        ])
+        Client.send_tx(client, tx)
         
         # wait for this epoch to finish
         :timer.sleep(3000)
@@ -385,6 +388,94 @@ defmodule StorageTest do
         # contain any data
         kv_store = Enum.at(kv_stores, 1)
         assert kv_store == %{}
+      end
+    )
+
+    # timeout after a couple epochs
+    wait_timeout = 5000
+
+    receive do
+    after
+      wait_timeout -> :ok
+    end
+  after
+    Emulation.terminate()
+  end
+
+  test "Requests with multi-op Transactions are executed on correct Storage partitions" do
+    Emulation.init()
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
+
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=AsyncReplicationScheme.new(_num_replicas=2, _main_replica=:A), 
+      _partition=PartitionScheme.new(_num_partitions=2)
+    )
+    
+    # launch the Calvin components
+    Calvin.launch(configuration)
+
+    spawn(
+      :client,
+      fn ->
+        # connect to the Sequencer on the main replica
+        sequencer = Component.id(_replica=:A, _partition=1, _type=:sequencer)
+        client = Client.connect_to(sequencer)
+
+        # send a Transaction where both partition 1 and 2 need to participate
+        tx = Transaction.new(_operations=[
+          Transaction.Op.create(:a, 1),
+          Transaction.Op.create(:z, 1)
+        ])
+
+        Client.send_tx(client, tx)
+
+        # wait for this epoch to finish
+        :timer.sleep(3000)
+
+        # get the key-value stores from the A replica
+        kv_stores = get_kv_stores(
+          _ids=Configuration.get_storage_view(configuration, :A)
+        )
+
+        IO.puts("kv_stores: #{inspect(kv_stores)}")
+
+        # check that every Storage node has the expected key-value store
+        # storage on partition 1 should only contain the `a` record since
+        # CREATE a->1 operation is local to partition 1 range of [a-m]
+        kv_store = Enum.at(kv_stores, 0)
+
+        assert Map.get(kv_store, :a) == 1
+        assert Map.get(kv_store, :z) == nil
+
+        # storage on partition 2 should only contain the `z` record since
+        # CREATE z->1 operation is local to partition 2 range of [n-z]
+        kv_store = Enum.at(kv_stores, 1)
+
+        assert Map.get(kv_store, :z) == 1
+        assert Map.get(kv_store, :a) == nil
+        
+        # get the key-value stores from the B replica
+        kv_stores = get_kv_stores(
+          _ids=Configuration.get_storage_view(configuration, :B)
+        )
+
+        # perform the same checks on the B replica
+        # check that every Storage node has the expected key-value store
+
+        # storage on partition 1 should only contain the `a` record since
+        # CREATE a->1 operation is local to partition 1 range of [a-m]
+        kv_store = Enum.at(kv_stores, 0)
+
+        assert Map.get(kv_store, :a) == 1
+        assert Map.get(kv_store, :z) == nil
+
+        # storage on partition 2 should only contain the `z` record since
+        # CREATE z->1 operation is local to partition 2 range of [n-z]
+        kv_store = Enum.at(kv_stores, 1)
+
+        assert Map.get(kv_store, :z) == 1
+        assert Map.get(kv_store, :a) == nil
       end
     )
 

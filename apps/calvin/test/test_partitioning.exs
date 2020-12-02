@@ -73,41 +73,44 @@ defmodule PartitioningTest do
     assert Map.get(partition_map, :z) == 4
   end
 
-  test "PartitionScheme partition_for_transaction() works as expected" do
+  test "PartitionScheme generate_participating_partitions() works as expected" do
     # create a configuration
     configuration = Configuration.new(
       _replication=AsyncReplicationScheme.new(_num_replicas=1), 
-      _partition=PartitionScheme.new(_num_partitions=1)
+      _partition=PartitionScheme.new(_num_partitions=3)
     )
     partition_scheme = configuration.partition_scheme
 
     # create a couple of Transactions
-    tx1 = Transaction.create(:a, 1)
-    tx2 = Transaction.create(:z, 1)
+    tx1 = Transaction.new(_operations=[
+      Transaction.Op.create(:a, 1),
+      Transaction.Op.create(:z, 1),
+    ])
+    tx2 = Transaction.new(_operations=[Transaction.Op.create(:a, 1)])
+    tx3 = Transaction.new(_operations=[Transaction.Op.create(:n, 1)])
+    tx_batch = [tx1, tx2, tx3]
 
-    # make sure that the correct partition is assigned to each Transaction based 
-    # on the Transaction key, which determines the position in the PartitionScheme's
-    # partition key map
-    assert PartitionScheme.partition_for_transaction(tx1, partition_scheme) == 1
-    assert PartitionScheme.partition_for_transaction(tx2, partition_scheme) == 1
-
-    # create a configuration
-    configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
-      _partition=PartitionScheme.new(_num_partitions=2)
+    tx_batch = PartitionScheme.generate_participating_partitions(
+      _tx_batch=tx_batch, partition_scheme
     )
-    partition_scheme = configuration.partition_scheme
 
-    # create a couple of Transactions
-    tx1 = Transaction.create(:a, 1)
-    tx2 = Transaction.create(:m, 1)
-    tx3 = Transaction.create(:n, 1)
-    tx4 = Transaction.create(:z, 1)
+    tx1_participating_partitions = Enum.at(tx_batch, 0).participating_partitions
+    tx2_participating_partitions = Enum.at(tx_batch, 1).participating_partitions
+    tx3_participating_partitions = Enum.at(tx_batch, 2).participating_partitions
 
-    assert PartitionScheme.partition_for_transaction(tx1, partition_scheme) == 1
-    assert PartitionScheme.partition_for_transaction(tx2, partition_scheme) == 1
-    assert PartitionScheme.partition_for_transaction(tx3, partition_scheme) == 2
-    assert PartitionScheme.partition_for_transaction(tx4, partition_scheme) == 2
+    # tx1 has participating partitions 1, 3, since `a` is in key range for
+    # partition 1 and `z` is in key range for partition 3
+    assert MapSet.size(tx1_participating_partitions) == 2
+    assert MapSet.member?(tx1_participating_partitions, 1) == true
+    assert MapSet.member?(tx1_participating_partitions, 3) == true
+
+    # tx2 only access `a`, thus only participating partition is partition 1
+    assert MapSet.size(tx2_participating_partitions) == 1
+    assert MapSet.member?(tx2_participating_partitions, 1) == true
+
+    # tx3 only access `n`, thus only participating partition is partition 2
+    assert MapSet.size(tx3_participating_partitions) == 1
+    assert MapSet.member?(tx3_participating_partitions, 2) == true
   end
 
   test "PartitionScheme partition_transactions() works as expected" do
@@ -119,11 +122,15 @@ defmodule PartitioningTest do
     partition_scheme = configuration.partition_scheme
 
     # create a couple of Transactions
-    tx1 = Transaction.create(:a, 1)
-    tx2 = Transaction.create(:m, 1)
-    tx3 = Transaction.create(:z, 1)
+    tx1 = Transaction.new(_operations=[Transaction.Op.create(:a, 1)])
+    tx2 = Transaction.new(_operations=[Transaction.Op.create(:m, 1)])
+    tx3 = Transaction.new(_operations=[Transaction.Op.create(:z, 1)])
     tx_batch = [tx1, tx2, tx3]
 
+    # generate the participating partitions for every Transaction and partition the batch
+    tx_batch = PartitionScheme.generate_participating_partitions(
+      _tx_batch=tx_batch, partition_scheme
+    )
     partitioned_batch = PartitionScheme.partition_transactions(_tx_batch=tx_batch, partition_scheme)
 
     # check that each partitioned batch contains a single Transaction
@@ -138,9 +145,8 @@ defmodule PartitioningTest do
 
     # check that each partitioned batch contains the correct
     # Transaction for that partition
-
-    assert Enum.at(partition_1_batch, 0).key == :a
-    assert Enum.at(partition_2_batch, 0).key == :m
-    assert Enum.at(partition_3_batch, 0).key == :z
+    assert Enum.at(partition_1_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :a
+    assert Enum.at(partition_2_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :m
+    assert Enum.at(partition_3_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :z
   end
 end

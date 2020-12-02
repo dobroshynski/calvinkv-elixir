@@ -294,6 +294,13 @@ defmodule Sequencer do
     # all of the Transactions for the current epoch acquired by this Sequencer
     batch = Map.get(state.epoch_logs, state.current_epoch)
 
+    # determine the participating partitions for each Transaction based on every
+    # Transaction's read and write sets
+    batch = PartitionScheme.generate_participating_partitions(
+      _tx_batch=batch,
+      _partition_scheme=state.configuration.partition_scheme
+    )
+
     # split the log of Transactions for the current epoch by partitioning based on the
     # current PartitionScheme
     partitioned_tx_batches = PartitionScheme.partition_transactions(
@@ -361,9 +368,7 @@ defmodule Sequencer do
       # client requests
       # TODO: extend this to transaction requests or CRUD requests for KV store
       {client_sender, tx = %Transaction{
-        type: type,
-        key: key,
-        val: val
+        operations: operations
       }} ->
         IO.puts("[node #{whoami()}] received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
         
@@ -683,15 +688,23 @@ defmodule Scheduler do
   @doc """
   Executes a single Transaction against a Storage component with unique id `storage_id`
   """
-  @spec tx_execute(%Transaction{}, atom()) :: no_return()
-  def tx_execute(tx, storage_id) do
-    message = Transaction.condensed(tx)
-    # TODO: this message send / execution RPC has to be executed without delays to mimic a
-    # transaction execution thread that executes all transactions from the global ordering
-    # in sequential order
-    send(storage_id, message)
-
-    IO.puts("[node #{whoami()}] sent tx message #{inspect(message)} to be execute by Storage component #{storage_id}")
+  @spec tx_execute(%Scheduler{}, %Transaction{}, atom()) :: no_return()
+  def tx_execute(state, tx, storage_id) do
+    # execute all of the operations of the given Transaction in linear order
+    Enum.map(tx.operations, 
+      fn op ->
+        # execute only local writes, as non-local writes will be seen as local by other
+        # partitions and executed by Schedulers there
+        if Transaction.Op.is_local_to_partition?(op, state.partition, state.configuration.partition_scheme) do
+          message = Transaction.Op.condensed(op)
+          # TODO: this message send / execution RPC has to be executed without delays to mimic a
+          # transaction execution thread that executes all transactions from the global ordering
+          # in sequential order
+          send(storage_id, message)
+          IO.puts("[node #{whoami()}] sent tx Operation message #{inspect(message)} to be executed by Storage component #{storage_id}")
+        end
+      end
+    )
   end
 
   @doc """
@@ -721,7 +734,7 @@ defmodule Scheduler do
       # TODO: add functionality to handle deterministic tx failures
       Enum.map(ordered_txs, 
         fn tx ->
-          tx_execute(_transaction=tx, _storage=storage_id)
+          tx_execute(state, _transaction=tx, _storage=storage_id)
         end
       )
 
@@ -1027,23 +1040,28 @@ defmodule Client do
     send(client.calvin_node, :ping)
   end
 
+  def send_tx(client, tx) do
+    node = client.calvin_node
+    send(node, tx)
+  end
+
   def send_create_tx(client, key, val) do
     node = client.calvin_node
-    tx = Transaction.create(key, val)
+    tx = Transaction.new(_operations=[Transaction.Op.create(key, val)])
 
     send(node, tx)
   end
 
   def send_update_tx(client, key, val) do
     node = client.calvin_node
-    tx = Transaction.update(key, val)
+    tx = Transaction.new(_operations=[Transaction.Op.update(key, val)])
 
     send(node, tx)
   end
 
   def send_delete_tx(client, key) do
     node = client.calvin_node
-    tx = Transaction.delete(key)
+    tx = Transaction.new(_operations=[Transaction.Op.delete(key)])
 
     send(node, tx)
   end
