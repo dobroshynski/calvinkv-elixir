@@ -8,7 +8,7 @@ defmodule ConfigurationTest do
   test "Configuration partition view works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=2), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=2), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
 
@@ -21,7 +21,7 @@ defmodule ConfigurationTest do
   test "Configuration replica view works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=3), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=3), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
 

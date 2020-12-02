@@ -87,7 +87,7 @@ defmodule StorageTest do
     # single replica partitioned across 3 nodes
     replica = :A
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
 
@@ -163,7 +163,7 @@ defmodule StorageTest do
     # single replica partitioned across 3 nodes
     replica = :A
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
     
@@ -262,7 +262,7 @@ defmodule StorageTest do
 
     # create a configuration with 2 replicas
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=2, _main_replica=:A), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=2, _main_replica=:A), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
     
@@ -325,7 +325,7 @@ defmodule StorageTest do
 
     # create a configuration with 3 replicas
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=3, _main_replica=:A), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=3, _main_replica=:A), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
     
@@ -408,7 +408,7 @@ defmodule StorageTest do
 
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=2, _main_replica=:A), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=2, _main_replica=:A), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
     

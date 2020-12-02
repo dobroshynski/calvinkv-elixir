@@ -14,7 +14,7 @@ defmodule SchedulerTest do
 
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=1)
     )
 
@@ -81,7 +81,7 @@ defmodule SchedulerTest do
     # single replica partitioned across 3 nodes
     num_partitions = 3
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=num_partitions)
     )
 

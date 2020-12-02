@@ -2,9 +2,7 @@
 # functions for managing which replica is designated as the main replica that is in charge
 # of replicating the Transaction batch input
 
-defmodule AsyncReplicationScheme do
-  alias __MODULE__
-
+defmodule ReplicationScheme.Async do
   @enforce_keys [:num_replicas]
 
   defstruct(
@@ -15,36 +13,36 @@ defmodule AsyncReplicationScheme do
   )
 
   @doc """
-  Creates a new AsyncReplicationScheme with `num_replicas` replicas and `main_replica`
+  Creates a new Async ReplicationScheme with `num_replicas` replicas and `main_replica`
   as the main replica of the system deployment with async replication
   """
-  @spec new(non_neg_integer(), atom()) :: %AsyncReplicationScheme{}
+  @spec new(non_neg_integer(), atom()) :: %ReplicationScheme.Async{}
   def new(num_replicas, main_replica) do
-    %AsyncReplicationScheme{
+    %ReplicationScheme.Async{
       num_replicas: num_replicas,
       main_replica: main_replica
     }
   end
 
   @doc """
-  Creates a new AsyncReplicationScheme with `num_replicas` replicas
+  Creates a new Async ReplicationScheme with `num_replicas` replicas
   """
-  @spec new(non_neg_integer()) :: %AsyncReplicationScheme{}
+  @spec new(non_neg_integer()) :: %ReplicationScheme.Async{}
   def new(num_replicas) do
-    replication_scheme = %AsyncReplicationScheme{
+    replication_scheme = %ReplicationScheme.Async{
       num_replicas: num_replicas
     }
 
     # if no main replica was provided, default to the 
     # name of the first replica
     replicas = ReplicationScheme.get_replica_view(replication_scheme)
-    AsyncReplicationScheme.set_main_replica(replication_scheme, _replica=Enum.at(replicas, 0))
+    ReplicationScheme.Async.set_main_replica(replication_scheme, _replica=Enum.at(replicas, 0))
   end
 
   @doc """
-  Updates the main replica for a given AsyncReplicationScheme 
+  Updates the main replica for a given Async ReplicationScheme 
   """
-  @spec set_main_replica(%AsyncReplicationScheme{}, atom()) :: %AsyncReplicationScheme{}
+  @spec set_main_replica(%ReplicationScheme.Async{}, atom()) :: %ReplicationScheme.Async{}
   def set_main_replica(replication_scheme, replica) do
     %{replication_scheme | main_replica: replica}
   end
@@ -58,7 +56,7 @@ defmodule ReplicationScheme do
   @doc """
   Returns a list view of replicas in a given ReplicationScheme
   """
-  @spec get_replica_view(%AsyncReplicationScheme{}) :: [atom()]
+  @spec get_replica_view(%ReplicationScheme.Async{}) :: [atom()]
   def get_replica_view(replication_scheme) do
     max_replica = replication_scheme.num_replicas - 1
     replica_range = 0..max_replica
@@ -68,9 +66,9 @@ defmodule ReplicationScheme do
 
   @doc """
   Returns a list of replicas other than the replica of a given component / process `proc`,
-  given an AsyncReplicationScheme
+  given an Async ReplicationScheme
   """
-  @spec get_all_other_replicas(%Storage{} | %Sequencer{} | %Scheduler{}, %AsyncReplicationScheme{}) :: [atom()]
+  @spec get_all_other_replicas(%Storage{} | %Sequencer{} | %Scheduler{}, %ReplicationScheme.Async{}) :: [atom()]
   def get_all_other_replicas(proc, replication_scheme) do
     replicas = ReplicationScheme.get_replica_view(replication_scheme)
     Enum.filter(replicas, fn replica -> replica != proc.replica end)

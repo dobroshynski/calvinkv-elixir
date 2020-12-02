@@ -19,7 +19,7 @@ defmodule Configuration do
   configuration and `replication_scheme` for managing replication.
   TODO: extend to accept synchronous replication
   """
-  @spec new(%AsyncReplicationScheme{}, %PartitionScheme{}) :: %Configuration{}
+  @spec new(%ReplicationScheme.Async{}, %PartitionScheme{}) :: %Configuration{}
   def new(replication_scheme, partition_scheme) do
     %Configuration {
       replication_scheme: replication_scheme,

@@ -3,22 +3,22 @@ defmodule ReplicationTest do
 
   doctest Configuration
   doctest PartitionScheme
-  doctest AsyncReplicationScheme
+  doctest ReplicationScheme.Async
 
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
-  test "AsyncReplicationScheme main replica works as expected" do
+  test "ReplicationScheme.Async main replica works as expected" do
     # create a configuration without setting a main replica
     # which should default to the first replica A
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=3), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=3), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
     assert configuration.replication_scheme.main_replica == :A
 
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=3, _main_replica=:B), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=3, _main_replica=:B), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
     assert configuration.replication_scheme.main_replica == :B
@@ -27,7 +27,7 @@ defmodule ReplicationTest do
   test "ReplicationScheme replica view works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=3), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=3), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
 
@@ -40,7 +40,7 @@ defmodule ReplicationTest do
   test "ReplicationScheme get_all_other_replicas() works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=4), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=4), 
       _partition=PartitionScheme.new(_num_partitions=2)
     )
 

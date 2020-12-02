@@ -9,7 +9,7 @@ defmodule ComponentTest do
   test "Component id/1 works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=1)
     )
 
@@ -34,7 +34,7 @@ defmodule ComponentTest do
   test "Component `physical` node id generation works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=1)
     )
 

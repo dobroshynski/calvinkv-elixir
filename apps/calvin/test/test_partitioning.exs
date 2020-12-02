@@ -3,7 +3,7 @@ defmodule PartitioningTest do
 
   doctest Configuration
   doctest PartitionScheme
-  doctest AsyncReplicationScheme
+  doctest ReplicationScheme.Async
 
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
@@ -11,7 +11,7 @@ defmodule PartitioningTest do
   test "PartitionScheme partition view works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
     partitions = PartitionScheme.get_partition_view(configuration.partition_scheme)
@@ -23,7 +23,7 @@ defmodule PartitioningTest do
   test "PartitionScheme get_all_other_partitions() works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
 
@@ -46,7 +46,7 @@ defmodule PartitioningTest do
   test "PartitionScheme generate_key_partition_map() works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=1)
     )
     partition_map = configuration.partition_scheme.partition_key_map
@@ -59,7 +59,7 @@ defmodule PartitioningTest do
 
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=4)
     )
     partition_map = configuration.partition_scheme.partition_key_map
@@ -76,7 +76,7 @@ defmodule PartitioningTest do
   test "PartitionScheme generate_participating_partitions() works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
     partition_scheme = configuration.partition_scheme
@@ -116,7 +116,7 @@ defmodule PartitioningTest do
   test "PartitionScheme partition_transactions() works as expected" do
     # create a configuration
     configuration = Configuration.new(
-      _replication=AsyncReplicationScheme.new(_num_replicas=1), 
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
       _partition=PartitionScheme.new(_num_partitions=3)
     )
     partition_scheme = configuration.partition_scheme
