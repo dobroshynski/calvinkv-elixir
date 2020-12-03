@@ -16,15 +16,29 @@ defmodule Configuration do
 
   @doc """
   Creates a new Configuration with `partition_scheme` for partitioning 
-  configuration and `replication_scheme` for managing replication.
-  TODO: extend to accept synchronous replication
+  configuration and `replication_scheme` for managing replication. Supports
+  both async replication and synchronous Raft-based replication schemes
   """
-  @spec new(%ReplicationScheme.Async{}, %PartitionScheme{}) :: %Configuration{}
+  @spec new(%ReplicationScheme.Async{} | %ReplicationScheme.Raft{}, %PartitionScheme{}) :: %Configuration{}
   def new(replication_scheme, partition_scheme) do
     %Configuration {
       replication_scheme: replication_scheme,
-      partition_scheme: partition_scheme
+      partition_scheme: partition_scheme,
     }
+  end
+
+  @doc """
+  Given a Configuration, returns which type of replication scheme the given configuration
+  is using - `async` or `raft`
+  """
+  @spec using_replication?(%Configuration{}) :: atom()
+  def using_replication?(configuration) do
+    case configuration.replication_scheme do
+      scheme = %ReplicationScheme.Async{} ->
+        :async
+      scheme = %ReplicationScheme.Raft{} ->
+        :raft
+    end
   end
 
   @doc """

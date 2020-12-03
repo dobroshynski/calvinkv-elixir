@@ -59,4 +59,22 @@ defmodule ReplicationTest do
     assert length(other_replicas) == 3, "Expected the number of other replicas to be 3"
     assert other_replicas == [:A, :C, :D]
   end
+
+  test "ReplicationScheme.Raft initial leaders are initiallized as expected" do
+    # create a configuration using Raft for replication
+    num_partitions = 2
+    configuration = Configuration.new(
+      _replication=ReplicationScheme.Raft.new(_num_replicas=3, _num_partitions=num_partitions), 
+      _partition=PartitionScheme.new(_num_partitions=num_partitions)
+    )
+    current_leaders = configuration.replication_scheme.current_leaders
+
+    # make sure that the initial leader for each partition's replication group is
+    # set correctly
+    Enum.map(PartitionScheme.get_partition_view(configuration.partition_scheme),
+      fn partition -> 
+        assert Map.get(current_leaders, partition) == :A
+      end
+    )
+  end
 end
