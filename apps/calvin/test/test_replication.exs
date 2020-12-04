@@ -77,4 +77,67 @@ defmodule ReplicationTest do
       end
     )
   end
+
+  test "ReplicationScheme.Raft.Log and Log.Entry work as expected" do
+    # create a new Raft log
+    log = ReplicationScheme.Raft.Log.new()
+    assert log.entries == []
+
+    # create an empty log entry
+    entry = ReplicationScheme.Raft.Log.Entry.empty()
+    assert entry.index == 0 && entry.term == 0 && entry.batch == []
+
+    # create a log entry with some Transactions
+    entry = ReplicationScheme.Raft.Log.Entry.new(_index=1, _term=1, _batch=[
+        Transaction.new(_operations=[
+          Transaction.Op.create(:a, 1),
+          Transaction.Op.create(:b, 1)    
+        ]),
+        Transaction.new(_operations=[
+          Transaction.Op.update(:a, 0)
+        ])
+      ]
+    )
+    assert entry.index == 1 && entry.term == 1 && length(entry.batch) == 2
+  end
+
+  test "ReplicationScheme.Raft.Log utility functions work as expected" do
+    # test with an empty log
+    log = ReplicationScheme.Raft.Log.new()
+
+    assert ReplicationScheme.Raft.Log.get_last_log_index(log) == 0
+    assert ReplicationScheme.Raft.Log.get_last_log_term(log) == 0
+    assert ReplicationScheme.Raft.Log.logged?(log, 1) == false
+
+    assert ReplicationScheme.Raft.Log.get_entry_at_index(log, 1) == :noentry
+    assert ReplicationScheme.Raft.Log.get_entries_at_index(log, 1) == []
+    assert ReplicationScheme.Raft.Log.remove_entries(log, _from_index=1).entries == []
+
+    # add some log entries to the log and test the utility functions
+    log = ReplicationScheme.Raft.Log.add_entries(log, _entries=[
+      ReplicationScheme.Raft.Log.Entry.new(_index=1, _term=1, _batch=[
+        Transaction.new(_operations=[
+          Transaction.Op.create(:a, 1)
+        ]),
+      ]), 
+      ReplicationScheme.Raft.Log.Entry.new(_index=2, _term=1, _batch=[
+        Transaction.new(_operations=[
+          Transaction.Op.create(:b, 1)
+        ])
+      ])
+    ])
+    assert length(log.entries) == 2
+
+    assert ReplicationScheme.Raft.Log.get_last_log_index(log) == 2
+    assert ReplicationScheme.Raft.Log.get_last_log_term(log) == 1
+    assert ReplicationScheme.Raft.Log.logged?(log, 2) == true
+    assert ReplicationScheme.Raft.Log.logged?(log, 3) == false
+
+    assert length(ReplicationScheme.Raft.Log.get_entry_at_index(log, 1).batch) == 1
+    assert length(ReplicationScheme.Raft.Log.get_entries_at_index(log, 1)) == 2
+    assert length(ReplicationScheme.Raft.Log.get_entries_at_index(log, 2)) == 1
+    assert ReplicationScheme.Raft.Log.get_entry_at_index(log, 3) == :noentry
+
+    assert length(ReplicationScheme.Raft.Log.remove_entries(log, _from_index=2).entries) == 1
+  end
 end

@@ -23,7 +23,7 @@ defmodule Configuration do
   def new(replication_scheme, partition_scheme) do
     %Configuration {
       replication_scheme: replication_scheme,
-      partition_scheme: partition_scheme,
+      partition_scheme: partition_scheme
     }
   end
 
