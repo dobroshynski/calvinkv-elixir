@@ -45,5 +45,37 @@ defmodule ComponentTest do
 
     assert to_charlist(id) == 'A1'
   end
+
+  test "Component on_main_replica?/1 for ReplicationScheme.Async works as expected" do
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=ReplicationScheme.Async.new(_num_replicas=3), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
+
+    # create a Sequencer on replica A
+    sequencer = Sequencer.new(_replica=:A, _partition=1, configuration)
+    assert Component.on_main_replica?(sequencer) == true
+
+    # create a Sequencer on replica B
+    sequencer = Sequencer.new(_replica=:B, _partition=1, configuration)
+    assert Component.on_main_replica?(sequencer) == false
+  end
+
+  test "Component on_leader_replica?/1 for ReplicationScheme.Raft works as expected" do
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=ReplicationScheme.Raft.new(_num_replicas=3, _num_partitions=1), 
+      _partition=PartitionScheme.new(_num_partitions=1)
+    )
+
+    # create a Sequencer on replica A
+    sequencer = Sequencer.new(_replica=:A, _partition=1, configuration)
+    assert Component.on_leader_replica?(sequencer) == true
+
+    # create a Sequencer on replica B
+    sequencer = Sequencer.new(_replica=:B, _partition=1, configuration)
+    assert Component.on_leader_replica?(sequencer) == false
+  end
 end
   

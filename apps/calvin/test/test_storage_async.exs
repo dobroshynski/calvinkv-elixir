@@ -1,4 +1,4 @@
-defmodule StorageTest do
+defmodule StorageTest.Async do
   use ExUnit.Case
   doctest Storage
 
