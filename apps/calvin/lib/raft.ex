@@ -367,7 +367,7 @@ defmodule Raft do
     """
     @spec make(%Raft{}) :: %Raft{}
     def make(state) do
-      IO.puts("making leader")
+      Debug.log("making leader")
 
       # nextIndex[] initialization like in the Raft paper
       # (leader last log index + 1)
@@ -389,10 +389,6 @@ defmodule Raft do
         next_index: next_index, 
         match_index: match_index
       }
-
-      # send a heartbeat AppendEntries RPC to let everyone know
-      # that this Raft state is the leader
-      Raft.Leader.broadcast_heartbeat_rpc(state)
 
       # return the updated state
       state
@@ -417,7 +413,7 @@ defmodule Raft do
     """
     @spec prepate_to_commit(%Raft{}) :: %Raft{}
     def prepate_to_commit(state) do
-      IO.puts("[leader #{whoami()}] commit index of #{state.commit_index} > last applied: #{state.last_applied}, can commit!")
+      Debug.log("commit index of #{state.commit_index} > last applied: #{state.last_applied}, can commit!", _role="leader")
 
       # update the state with new lastApplied
       state = %{state | last_applied: state.last_applied + 1}
@@ -457,15 +453,15 @@ defmodule Raft do
     def update_commit_index(state) do
       n = state.commit_index + 1
 
-      IO.puts("checking if can update commit index to #{n}...")
+      Debug.log("checking if can update commit index to #{n}...", role="leader")
   
       # trying to update the commit index on leader to N
       # conditions from &5.3, &5.4 needed to update the commit index
       if Raft.Utils.majority_match?(state, n) && Log.logged?(state.log, n) &&
            Log.get_entry_at_index(state.log, n).term == state.current_term do
   
-        IO.puts("current matchIndex: #{inspect(state.match_index)}")
-        IO.puts("successfully updated commit index to #{n}")
+        Debug.log("current matchIndex: #{inspect(state.match_index)}", role="leader")
+        Debug.log("successfully updated commit index to #{n}", role="leader")
         # set commitIndex = N
         %{state | commit_index: n}
       else
@@ -489,9 +485,7 @@ defmodule Raft do
           state.commit_index,
           nil
         )
-  
-      IO.puts("preparing to broadcast AppendEntries: #{inspect(heartbeat_request)}")
-  
+
       # broadcast an empty heartbeat AppendEntries RPC to all followers
       follower_replicas = Raft.Utils.everyone_other_than_me(state)
 
@@ -504,8 +498,8 @@ defmodule Raft do
           # send the heartbeat request to the member of the replication group
           send(sequencer_id, heartbeat_request)
   
-          IO.puts("[node #{whoami()}] sent AppendEntries broadcast message to #{sequencer_id}:
-          #{inspect(heartbeat_request)}")
+          Debug.log("sent AppendEntries broadcast message to #{sequencer_id}:
+          #{inspect(heartbeat_request)}", _role="leader")
         end
       )
     end
@@ -530,10 +524,10 @@ defmodule Raft do
       """
       @spec append_entries_response(%Raft{}, %Raft.AppendEntries.Response{}, atom()) :: %Raft{}
       def append_entries_response(state, response, sender) do
-        IO.puts("[leader #{whoami()}] handling from PID: #{sender} Response: #{inspect(response)}")
+        # IO.puts("[leader #{whoami()}] handling from PID: #{sender} Response: #{inspect(response)}")
 
-        IO.puts("[leader #{whoami()}] current state of nextIndex[]: #{inspect(state.next_index)}")
-        IO.puts("[leader #{whoami()}] current state of matchIndex[]: #{inspect(state.match_index)}")
+        # IO.puts("[leader #{whoami()}] current state of nextIndex[]: #{inspect(state.next_index)}")
+        # IO.puts("[leader #{whoami()}] current state of matchIndex[]: #{inspect(state.match_index)}")
 
         state = Raft.Leader.update_records(state, 
           _for_replica=response.replica, 
@@ -541,11 +535,11 @@ defmodule Raft do
           _highest_index_matched=response.log_index
         )
 
-        IO.puts("[leader #{whoami()}] updated state of nextIndex[]: #{inspect(state.next_index)}")
-        IO.puts("[leader #{whoami()}] updated state of matchIndex[]: #{inspect(state.match_index)}")
+        # IO.puts("[leader #{whoami()}] updated state of nextIndex[]: #{inspect(state.next_index)}")
+        # IO.puts("[leader #{whoami()}] updated state of matchIndex[]: #{inspect(state.match_index)}")
 
         if response.success do
-          IO.puts("[leader #{whoami()}] successfull AppendEntries.Response from #{sender}")
+          Debug.log("successfull AppendEntries.Response from #{sender}", _role="leader")
     
           # given the updated state with matchIndex[] potentially updated, check
           # if we can update the commit index locally for the leader
@@ -554,7 +548,7 @@ defmodule Raft do
           # return the updated state
           state
         else
-          IO.puts("[leader #{whoami()}] unsuccessfull AppendEntries.Response")
+          Debug.log("unsuccessfull AppendEntries.Response", _role="leader")
     
           # respond to the follower (`sender`) by sending another AppendEntries request
           # message which now will contain a nextIndex which is decremented by 1
@@ -604,7 +598,7 @@ defmodule Raft do
     """
     @spec make(%Raft{}) :: %Raft{}
     def make(state) do
-      IO.puts("making follower")
+      Debug.log("making follower", _role="follower")
 
       %{state | current_role: :follower}
     end
@@ -628,7 +622,7 @@ defmodule Raft do
     """
     @spec prepate_to_apply(%Raft{}) :: %Raft{}
     def prepate_to_apply(state) do
-      IO.puts("[follower #{whoami()}] commit index is higher than last applied, so apply next operation")
+      Debug.log("commit index is higher than last applied, so apply next operation", _role="follower")
 
       # update the state with new lastApplied
       state = %{state | last_applied: state.last_applied + 1}
@@ -643,7 +637,7 @@ defmodule Raft do
     def update_commit_index(state, leader_commit_index) do
       if leader_commit_index > state.commit_index do
         new_commit_index = min(leader_commit_index, Log.get_last_log_index(state.log))
-        IO.puts("[follower #{whoami()}] updating commit index from #{state.commit_index} -> #{new_commit_index}")
+        Debug.log("updating commit index from #{state.commit_index} -> #{new_commit_index}", _role="follower")
         
         %{state | commit_index: new_commit_index}
       else
@@ -668,7 +662,7 @@ defmodule Raft do
           # that the Raft state that is currently in `leader` role is sending a heartbeat 
           # and not trying to append anything
           request.entries == nil ->
-            IO.puts("[follower #{whoami()}] received heartbeat RPC from #{sender}, going to attempt to apply anything locally")
+            Debug.log("received heartbeat RPC from #{sender}, going to attempt to apply anything locally", _role="follower")
             
             # check if can update the local commit index in case the current leader has
             # moved up it's commit index since the last AppendEntries request RPC
@@ -704,8 +698,8 @@ defmodule Raft do
             # to replicate to the current follower
             entries = request.entries
 
-            IO.puts("[follower #{whoami()}] received a valid AppendEntrues RPC from #{sender}
-            attempting to append entries: #{inspect(entries)}")
+            Debug.log("received a valid AppendEntrues RPC from #{sender}
+            attempting to append entries: #{inspect(entries)}", _role="follower")
     
             # latest of entries that have been sent by the leader, this entry has the
             # highest index of the entries that the `leader` is attempting to replicate to
@@ -729,7 +723,7 @@ defmodule Raft do
               )
             }
     
-            IO.puts("updated local log to: #{inspect(state.log)}")
+            Debug.log("updated local log to: #{inspect(state.log)}", _role="follower")
 
             # send back an AppendEntries response signaling an OK that the entries sent by the
             # Raft process `sender` in `leader` role have successfully been replicated to the Raft
@@ -794,18 +788,18 @@ defmodule Raft do
       term: state.current_term,
       batch: tx_batch
     }
-    IO.puts("[node #{whoami()}] created a new Log.Entry: #{inspect(entry)}")
+    Debug.log("created a new Log.Entry: #{inspect(entry)}", _role="leader")
 
     # extend the local `leader` log by appending the new entries
     state = %{state | log: Log.add_entries(state.log, [entry])}
-    IO.puts("[node #{whoami()}] updated local log to: #{inspect(state.log)}")
+    Debug.log("updated local log to: #{inspect(state.log)}", _role="leader")
     
     # now also update the matchIndex for current server (leader), since
     # we extended it
     new_match_index = Log.get_last_log_index(state.log)
     state = %{state | match_index: Map.put(state.match_index, state.my_replica, new_match_index)}
 
-    IO.puts("done preparing for replication, updated matchIndex to: #{inspect(state.match_index)}")
+    Debug.log("done preparing for replication, updated matchIndex to: #{inspect(state.match_index)}", _role="leader")
     
     state
   end
@@ -817,7 +811,7 @@ defmodule Raft do
   """
   @spec replicate(%Raft{}) :: %Raft{}
   def replicate(state) do
-    IO.puts("replicating...")
+    Debug.log("replicating...", _role="leader")
 
     # the the index of the latest log entry on the local Raft log
     last_log_index = Log.get_last_log_index(state.log)
@@ -830,14 +824,12 @@ defmodule Raft do
         # get nextIndex for the follower member of replica group
         next_index_for_follower = Map.get(state.next_index, replica)
 
-        IO.puts("nextIndex for #{replica}: #{next_index_for_follower}")
-
         if last_log_index >= next_index_for_follower do
           # get the log entries that need to be sent to this follower server
           log_entries_starting_at_next_index = Log.get_entries_at_index(state.log, next_index_for_follower)
 
-          IO.puts("entries that need to send to #{replica}: 
-          #{inspect(log_entries_starting_at_next_index)}")
+          Debug.log("entries that need to send to #{replica}: 
+          #{inspect(log_entries_starting_at_next_index)}", _role="leader")
 
           # compute the index of log entry immediately preceding new ones
           # and term of that prevLogIndex entry
@@ -861,7 +853,7 @@ defmodule Raft do
           # send to the message
           send(follower_sequencer_id, append_request)
 
-          IO.puts("sent to #{follower_sequencer_id} AppendEntries RPC: #{inspect(append_request)}")
+          Debug.log("sent to #{follower_sequencer_id} AppendEntries RPC: #{inspect(append_request)}", _role="leader")
         end
       end
     )

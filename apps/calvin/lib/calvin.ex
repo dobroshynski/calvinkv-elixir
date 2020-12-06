@@ -174,30 +174,30 @@ defmodule Storage do
   """
   @spec receive_commands(%Storage{}) :: no_return()
   def receive_commands(state) do
-    IO.puts("[node #{whoami()}] current state of KV store: #{inspect(state.store)}")   
+    Debug.log("current state of KV store: #{inspect(state.store)}")   
 
     receive do
       # raw CRUD messages for the key-value store
       {sender, {:READ, key}} ->
-        IO.puts("[node #{whoami()}] received a READ request for key {#{key}}")
+        Debug.log("received a READ request for key {#{key}}")
 
         {ret, state} = exec_storage_command(state, :READ, key)
 
         receive_commands(state)
       {sender, {:CREATE, key, val}} ->
-        IO.puts("[node #{whoami()}] received a CREATE request setting key {#{key}} to value {#{val}}")
+        Debug.log("received a CREATE request setting key {#{key}} to value {#{val}}")
 
         {ret, state} = exec_storage_command(state, :CREATE, key, val)
 
         receive_commands(state)
       {sender, {:UPDATE, key, val}} -> 
-        IO.puts("[node #{whoami()}] received a UPDATE request updating key {#{key}} to value {#{val}}")
+        Debug.log("received a UPDATE request updating key {#{key}} to value {#{val}}")
         
         {ret, state} = exec_storage_command(state, :UPDATE, key, val)
 
         receive_commands(state)
       {sender, {:DELETE, key}} ->
-        IO.puts("[node #{whoami()}] received a DELETE request deleting value associated with key {#{key}}")
+        Debug.log("received a DELETE request deleting value associated with key {#{key}}")
 
         {ret, state} = exec_storage_command(state, :DELETE, key)
         
@@ -308,11 +308,11 @@ defmodule Sequencer do
       _tx_batch=batch,
       _partition_scheme=state.configuration.partition_scheme
     )
-    IO.puts("[node #{whoami()}] partitioned batch for epoch #{epoch}: #{inspect(partitioned_tx_batches)}")
+    Debug.log("partitioned batch for epoch #{epoch}: #{inspect(partitioned_tx_batches)}")
 
     # get all of the partition numbers in a replica via the current Configuration
     partition_view = Configuration.get_partition_view(state.configuration)
-    IO.puts("[node #{whoami()}] list of partitions per replica: #{inspect(partition_view)}")
+    Debug.log("list of partitions per replica: #{inspect(partition_view)}")
 
     # send out BatchTransactionMessages to all Schedulers within the same replica as the
     # current Sequencer process / component
@@ -328,7 +328,6 @@ defmodule Sequencer do
           # partition
           batch: Map.get(partitioned_tx_batches, partition, [])
         }
-        IO.puts("[node #{whoami()}] created a BatchTransactionMessage: #{inspect(batch_tx_msg)}")
 
         # construct a unique id for a recipient Scheduler component within the current replica
         # given a partition
@@ -337,7 +336,7 @@ defmodule Sequencer do
         # send a BatchTransactionMessage to this specific Scheduler component
         send(scheduler_id, batch_tx_msg)
 
-        IO.puts("[node #{whoami()}] sent BatchTransactionMessage to scheduler process #{scheduler_id}")
+        Debug.log("sent BatchTransactionMessage #{inspect(batch_tx_msg)} to scheduler process #{scheduler_id}")
       end
     )    
   end
@@ -366,7 +365,7 @@ defmodule Sequencer do
     sequencer = Enum.random(sequencers)
     send(sequencer, tx)
 
-    IO.puts("[node #{whoami()}] forwarded tx #{inspect(tx)} to sequencer #{sequencer}")
+    Debug.log("forwarded tx #{inspect(tx)} to sequencer #{sequencer}")
   end
 
   @doc """
@@ -387,11 +386,11 @@ defmodule Sequencer do
     else
       # timestamp this Transaction at time of receiving
       tx = Transaction.add_timestamp(tx)
-      IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+      Debug.log("tx updated to #{inspect(tx)}")
 
       # add the incoming Transaction to the Sequencer's local log
       state = add_to_log(state, tx)
-      IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+      Debug.log("local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
 
       # return the updated state
       state
@@ -445,11 +444,11 @@ defmodule Sequencer do
     else
       # timestamp this Transaction at time of receiving
       tx = Transaction.add_timestamp(tx)
-      IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+      Debug.log("tx updated to #{inspect(tx)}")
 
       # add the incoming Transaction to the Sequencer's local log
       state = add_to_log(state, tx)
-      IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+      Debug.log("local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
 
       # return the updated state
       state
@@ -468,7 +467,7 @@ defmodule Sequencer do
       {client_sender, tx = %Transaction{
         operations: operations
       }} ->
-        IO.puts("[node #{whoami()}] received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
+        Debug.log("received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
         
         # handle the request based on the replication mode
         case Configuration.using_replication?(state.configuration) do
@@ -485,7 +484,7 @@ defmodule Sequencer do
         end
 
       {client_sender, :ping} ->
-        IO.puts("[node #{whoami()}] received a ping request from client {#{client_sender}}")
+        Debug.log("received a ping request from client {#{client_sender}}")
 
         # continue listening for requests
         receive_requests(state)
@@ -497,7 +496,7 @@ defmodule Sequencer do
         epoch: epoch,
         batch: batch
       }} ->
-        IO.puts("[node #{whoami()}] received an Async.ReplicateBatch request from Sequencer #{sequencer_sender}
+        Debug.log("received an Async.ReplicateBatch request from Sequencer #{sequencer_sender}
         for epoch: #{epoch}
         batch: #{inspect(batch)}")
 
@@ -512,7 +511,7 @@ defmodule Sequencer do
         # Sequencer RSM as we are adding Transaction entries with `add_to_log` 
         state = Enum.reduce(batch, state, fn tx, acc -> add_to_log(acc, tx) end)
 
-        IO.puts("[node #{whoami()}] log state after reduction: #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+        Debug.log("log state after reduction: #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
 
         # now that the log for the epoch is synced up with the Sequencer on the main replica
         # within this Sequencer's replica group, send out a BatchTransactionMessage to all of
@@ -531,7 +530,7 @@ defmodule Sequencer do
       # main replica and with synchronous Raft-based replication the epoch timer
       # is active on Sequencers on the leader replica
       :epoch_timer ->
-        IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
+        Debug.log("epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
 
         # handle the end of current epoch based on the current replication scheme. If
         # using ReplicationScheme.Async, replicate to other secondary replica Sequencers
@@ -608,12 +607,12 @@ defmodule Sequencer do
               # update the Raft state prior to applying
               state = Raft.Follower.prepate_to_apply(state.raft) |> update(state)
 
-              IO.puts("[node #{whoami()}][follower] ready to apply at Raft log index: #{inspect(state.raft.last_applied)}")
+              Debug.log("[node #{whoami()}][follower] ready to apply at Raft log index: #{inspect(state.raft.last_applied)}", _role="follower")
               
               log_entry_to_apply = Raft.Log.get_entry_at_index(state.raft.log, _apply_index=state.raft.last_applied)
 
-              IO.puts("[node #{whoami()}][follower] applying a LogEntry batch of transactions: #{inspect(log_entry_to_apply.batch)}")
-              IO.puts("[node #{whoami()}][follower] the apply is for epoch [#{log_entry_to_apply.index}]")
+              Debug.log("applying a LogEntry batch of transactions: #{inspect(log_entry_to_apply.batch)}", _role="follower")
+              Debug.log("the apply is for epoch [#{log_entry_to_apply.index}]", _role="follower")
 
               # apply the entry at the Raft log to be applied at by sending the batch of Transactions
               # for that log entry to the Schedulers on the same replica as the current Sequencer 
@@ -650,11 +649,11 @@ defmodule Sequencer do
               # update the Raft state prior to commiting
               state = Raft.Leader.prepate_to_commit(state.raft) |> update(state)
 
-              IO.puts("[calvin leader] ready to commit at Raft log index #{state.raft.last_applied}")
+              Debug.log("ready to commit at Raft log index #{state.raft.last_applied}", _role="leader")
               log_entry_to_commit = Raft.Log.get_entry_at_index(state.raft.log, _commit_index=state.raft.last_applied)
 
-              IO.puts("[calvin leader] commiting a LogEntry batch of transactions: #{inspect(log_entry_to_commit.batch)}")
-              IO.puts("[calvin leader] the commit is for epoch [#{log_entry_to_commit.index}]")
+              Debug.log("commiting a LogEntry batch of transactions: #{inspect(log_entry_to_commit.batch)}", _role="leader")
+              Debug.log("the commit is for epoch [#{log_entry_to_commit.index}]", _role="leader")
               
               # since the Transaction batch at the index in the Raft log that is equivalent
               # to the epoch has been marked as safe to commit, perform the commit by
@@ -793,13 +792,13 @@ defmodule Sequencer do
     # increment the epoch in the RSM
     old_epoch = state.current_epoch
     state = %{state | current_epoch: old_epoch + 1}
-    IO.puts("-------------------- EPOCH #{state.current_epoch} --------------------")
-    IO.puts("[node #{whoami()}] incremented epoch from #{old_epoch} -> #{state.current_epoch}")
+    Debug.log("-------------------- EPOCH #{state.current_epoch} --------------------")
+    Debug.log("incremented epoch from #{old_epoch} -> #{state.current_epoch}")
 
     # create an empty log for the current updated epoch in the RSM
     state = initialize_log(state, state.current_epoch)
 
-    IO.puts("[node #{whoami()}] current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
+    Debug.log("current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
 
     # if on main replica or leader replica, start the timer for
     # duration of epoch
@@ -897,8 +896,9 @@ defmodule Scheduler do
 
     state = %{state | partial_orders: Map.put(state.partial_orders, epoch, updated_tx_batches)}
 
-    IO.puts("[#{whoami()}] PARTIAL TX ORDERS (epoch #{epoch}): 
-    #{inspect(state.partial_orders)}")
+    Debug.log("partial tx orders (epoch #{epoch}): 
+    \n#{inspect(state.partial_orders)}\n")
+
     state
   end
 
@@ -913,7 +913,7 @@ defmodule Scheduler do
     # since `partial_orders` is a list of lists containing Transaction batches
     all_txs = List.flatten(Map.get(partial_orders, epoch))
 
-    IO.puts("[node #{whoami()}] all txs for epoch #{epoch} flattened: #{inspect(all_txs)}")
+    Debug.log("all txs for epoch #{epoch} flattened: #{inspect(all_txs)}")
     
     # sort all of the Transactions according to their timestamps
     sorted_txs = Enum.sort(all_txs, 
@@ -927,8 +927,7 @@ defmodule Scheduler do
       end
     )
 
-    IO.puts("[node #{whoami()}] sorted GLOBAL TX order done:
-     #{inspect(sorted_txs)}")
+    Debug.log("sorted global tx order: #{inspect(sorted_txs)}")
     
     sorted_txs
   end
@@ -944,7 +943,7 @@ defmodule Scheduler do
     expected = state.configuration.partition_scheme.num_partitions
     received = length(Map.get(state.partial_orders, state.processing_epoch, []))
 
-    IO.puts("[node #{whoami()}] attempting to interleave txs for epoch #{state.processing_epoch}
+    Debug.log("attempting to interleave txs for epoch #{state.processing_epoch}
     partial order state: #{inspect(Map.get(state.partial_orders, state.processing_epoch))}, 
     batches expected: #{expected}, 
     batches received: #{received}")
@@ -977,7 +976,7 @@ defmodule Scheduler do
           # transaction execution thread that executes all transactions from the global ordering
           # in sequential order
           send(storage_id, message)
-          IO.puts("[node #{whoami()}] sent tx Operation message #{inspect(message)} to be executed by Storage component #{storage_id}")
+          Debug.log("sent tx Operation message #{inspect(message)} to be executed by Storage component #{storage_id}")
         end
       end
     )
@@ -1033,8 +1032,7 @@ defmodule Scheduler do
         epoch: epoch,
         batch: batch
       }} ->
-        IO.puts("[node #{whoami()}] received a BatchTransactionMessage from sequencer node #{sender}")
-        IO.puts("[node #{whoami()}] msg received: #{inspect(msg)}")
+        Debug.log("msg received: #{inspect(msg)} from node #{sender}")
 
         # save the batch of Transaction requests just received from the Sequencer
         # these do not necessarily have to be for the same epoch as `processing_epoch`
