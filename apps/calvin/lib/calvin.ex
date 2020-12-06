@@ -231,7 +231,7 @@ end
 # before forwarding them to the Scheduler layer for execution
 
 defmodule Sequencer do
-  import Emulation, only: [send: 2, timer: 1, whoami: 0]
+  import Emulation, only: [send: 2, timer: 1, whoami: 0, timer: 2]
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
@@ -249,7 +249,11 @@ defmodule Sequencer do
     current_epoch: nil,
     # local logs of entries for epochs
     # this is a map of {epoch number => log of requests for that epoch}
-    epoch_logs: %{}
+    epoch_logs: %{},
+
+    # Raft protocol state for when using Raft-based synchronous
+    # replication of Transaction batches
+    raft: nil
   )
 
   @doc """
@@ -289,11 +293,8 @@ defmodule Sequencer do
   contains only the batch of Transactions that the recipient Scheduler needs to participate in, 
   which is decided by the PartitionScheme as part of the current Configuration
   """
-  @spec broadcast_batch(%Sequencer{}) :: no_return()
-  def broadcast_batch(state) do
-    # all of the Transactions for the current epoch acquired by this Sequencer
-    batch = Map.get(state.epoch_logs, state.current_epoch)
-
+  @spec broadcast_batch(%Sequencer{}, non_neg_integer(), [%Transaction{}]) :: no_return()
+  def broadcast_batch(state, epoch, batch) do
     # determine the participating partitions for each Transaction based on every
     # Transaction's read and write sets
     batch = PartitionScheme.generate_participating_partitions(
@@ -307,7 +308,7 @@ defmodule Sequencer do
       _tx_batch=batch,
       _partition_scheme=state.configuration.partition_scheme
     )
-    IO.puts("[node #{whoami()}] partitioned batch for epoch #{state.current_epoch}: #{inspect(partitioned_tx_batches)}")
+    IO.puts("[node #{whoami()}] partitioned batch for epoch #{epoch}: #{inspect(partitioned_tx_batches)}")
 
     # get all of the partition numbers in a replica via the current Configuration
     partition_view = Configuration.get_partition_view(state.configuration)
@@ -321,7 +322,7 @@ defmodule Sequencer do
         # that need to be sent to this particular partition within the replica
         batch_tx_msg = %BatchTransactionMessage{
           sequencer_id: whoami(),
-          epoch: state.current_epoch,
+          epoch: epoch,
           # log of Transactions for this particular partition or empty log
           # if no Transactions were acquired that need to be sent to this
           # partition
@@ -343,13 +344,23 @@ defmodule Sequencer do
 
   @doc """
   Forwards a Transaction request to a randomly chosen Sequencer component on the main replica
-  as given by the current Configuration
+  if using ReplicationScheme.Async or on the leader replica if using ReplicationScheme.Raft
   """
   @spec forward_request(%Sequencer{}, %Transaction{}) :: no_return()
   def forward_request(state, tx) do
-    main_replica = state.configuration.replication_scheme.main_replica
-    # get a list of Sequencers on the main replica that we can forward this Transaction to
-    sequencers = Configuration.get_sequencer_view(state.configuration, _replica=main_replica)
+    # forward the request to either the main replica if using `async` replication
+    # or to the leader replica if using `raft` replication
+    replication_scheme = state.configuration.replication_scheme
+
+    recipient_replica = if Configuration.using_replication?(state.configuration) == :async, 
+      do: replication_scheme.main_replica,
+      else: ReplicationScheme.get_leader_for_partition(
+        _replication_scheme=replication_scheme,
+        _paritition=state.partition
+      )
+
+    # get a list of Sequencers on the recipient replica that we can forward this Transaction to
+    sequencers = Configuration.get_sequencer_view(state.configuration, _replica=recipient_replica)
 
     # pick a random Sequencer to forward the Transaction to
     sequencer = Enum.random(sequencers)
@@ -359,39 +370,118 @@ defmodule Sequencer do
   end
 
   @doc """
+  Handles an incoming Transaction request with ReplicationScheme.Async
+  replication mode
+  """
+  @spec handle_tx_with_async_replication(%Sequencer{}, %Transaction{}) :: %Sequencer{}
+  def handle_tx_with_async_replication(state, tx) do
+    # if the Sequencer RSM is not located on the main replica, forward this
+    # Transaction request to any of the Sequencers on the main replica given by
+    # the Configuration
+    if Component.on_main_replica?(state) == false do
+      # forward the Transaction
+      forward_request(state, tx)
+
+      # return the state unchanged
+      state
+    else
+      # timestamp this Transaction at time of receiving
+      tx = Transaction.add_timestamp(tx)
+      IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+
+      # add the incoming Transaction to the Sequencer's local log
+      state = add_to_log(state, tx)
+      IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+
+      # return the updated state
+      state
+    end
+  end
+
+  @doc """
+  Given a state for the Raft protocol, updates the local Sequencer RSM 
+  state of the given Sequencer process to hold the updated Raft state
+  """
+  @spec update(%Raft{}, %Sequencer{}) :: %Sequencer{}
+  def update(raft_state, state) do
+    %{state | raft: raft_state}
+  end
+
+  @doc """
+  Initializes the state of the Raft protocol for the given Sequencer RSM
+  """
+  @spec initialize_raft(%Sequencer{}) :: %Sequencer{}
+  def initialize_raft(state) do
+    # get a Raft state based on the current Sequencer state
+    raft = Raft.init(_sequencer_state=state)
+
+    case raft.current_role do
+      :leader ->
+        Raft.Leader.make(raft) |> update(state)
+
+      :follower ->
+        Raft.Follower.make(raft) |> update(state)
+    end
+  end
+
+  @doc """
+  Handles an incoming Transaction request with ReplicationScheme.Raft
+  replication mode
+
+  TODO: add support to forward the Transactions to the leader replica at a time interval
+  instead of immediately
+  """
+  @spec handle_tx_with_raft_replication(%Sequencer{}, %Transaction{}) :: %Sequencer{}
+  def handle_tx_with_raft_replication(state, tx) do
+    # if the Sequencer RSM is not located on the Raft leader replica, forward this
+    # Transaction request to any of the Sequencers on the leader replica given by
+    # the Configuration
+    if Component.on_leader_replica?(state) == false do
+      # forward the Transaction
+      forward_request(state, tx)
+
+      # return the state unchanged
+      state
+    else
+      # timestamp this Transaction at time of receiving
+      tx = Transaction.add_timestamp(tx)
+      IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+
+      # add the incoming Transaction to the Sequencer's local log
+      state = add_to_log(state, tx)
+      IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+
+      # return the updated state
+      state
+    end
+  end
+
+  @doc """
   Run the Sequencer component RSM, listen for client requests, append them to log and keep track of
-  current epoch timer
+  current epoch timer. Based on the current replication scheme, also send and receive messages specific
+  to the replication scheme
   """
   @spec receive_requests(%Sequencer{}) :: no_return()
   def receive_requests(state) do
     receive do
-      # client requests
-      # TODO: extend this to transaction requests or CRUD requests for KV store
+      # Transaction request from a client
       {client_sender, tx = %Transaction{
         operations: operations
       }} ->
         IO.puts("[node #{whoami()}] received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
         
-        # if the Sequencer RSM is not located on the main replica, forward this
-        # Transaction request to any of the Sequencers on the main replica given by
-        # the Configuration
-        if Component.on_main_replica?(state) == false do
-          # forward the Transaction
-          forward_request(state, tx)
-          
-          # continue listening for requests
-          receive_requests(state)
-        else
-          # timestamp this Transaction at time of receiving
-          tx = Transaction.add_timestamp(tx)
-          IO.puts("[node #{whoami()}] tx updated to #{inspect(tx)}")
+        # handle the request based on the replication mode
+        case Configuration.using_replication?(state.configuration) do
+          :async ->
+            state = handle_tx_with_async_replication(state, _transaction=tx)
 
-          # add the incoming Transaction to the Sequencer's local log
-          state = add_to_log(state, tx)
-          IO.puts("[node #{whoami()}] local log for epoch #{state.current_epoch} updated to #{inspect(Map.get(state.epoch_logs, state.current_epoch))}")
+            # continue listening for requests
+            receive_requests(state)
+          :raft ->
+            state = handle_tx_with_raft_replication(state, _transaction=tx)
 
-          # continue listening for requests
-          receive_requests(state)
+            # continue listening for requests
+            receive_requests(state)
         end
 
       {client_sender, :ping} ->
@@ -400,7 +490,6 @@ defmodule Sequencer do
         # continue listening for requests
         receive_requests(state)
 
-      # TODO: async replication mode supported only
       # AsyncReplicateBatchRequest sent by the Sequencers on the main replica which notifies the Sequencers 
       # on the secondary replicas of Transactions received during the given epoch and allows the
       # Sequencer RSM to update it's state and move up the epoch to synchronize
@@ -428,31 +517,169 @@ defmodule Sequencer do
         # now that the log for the epoch is synced up with the Sequencer on the main replica
         # within this Sequencer's replica group, send out a BatchTransactionMessage to all of
         # the Schedulers within the same replica as the current Sequencer
-        broadcast_batch(state)
+        broadcast_batch(state, 
+          _for_epoch=state.current_epoch,
+          # all of the Transactions for the current epoch acquired by this Sequencer
+          _batch=Map.get(state.epoch_logs, state.current_epoch)
+        )
 
         # continue listening for requests
         receive_requests(state)
 
-      # TODO: async replication mode supported only
       # epoch timer message signifying the end of the current epoch
       # with async replication the epoch timer is active on Sequencers on the 
-      # main replica
-      :timer ->
+      # main replica and with synchronous Raft-based replication the epoch timer
+      # is active on Sequencers on the leader replica
+      :epoch_timer ->
         IO.puts("[node #{whoami()}] epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
 
-        # TODO: async replication mode supported only
-        # asynchronously replicate this batch to other Sequencers
-        replicate_batch_async(state)
+        # handle the end of current epoch based on the current replication scheme. If
+        # using ReplicationScheme.Async, replicate to other secondary replica Sequencers
+        # and send the batch for this epoch to the Schedulers immediately, otherwise, if
+        # using ReplicationScheme.Raft, start the replication and only update the current 
+        # epoch, as the Sequencer can only reliably consider a batch committed, and hence 
+        # apply the entry at the current log position, once it knows the entry is committed.
+        # Applying the entry is in this case equivalent to sending the entry to the Scheduler
+        # processes
 
-        # send out a BatchTransactionMessage to all of the Schedulers within the
-        # same replica as the current Sequencer
-        broadcast_batch(state)
+        case Configuration.using_replication?(state.configuration) do
+          :async ->
+            # asynchronously replicate the batch for the current epoch to other Sequencers 
+            # in the current Sequencer's replication group
+            replicate_batch_async(state)
 
-        # increment the epoch from current -> current + 1
-        state = increment_epoch(state)
+            # since using async replication, now can broadcast the relevant batches (those
+            # Transactions in which the partition will need to participate in) for each
+            # Scheduler within the same replica as the current Sequencer
+            broadcast_batch(state, 
+              _for_epoch=state.current_epoch,
+              # all of the Transactions for the current epoch acquired by this Sequencer
+              _batch=Map.get(state.epoch_logs, state.current_epoch)
+            )
 
-        # continue listening for requests
-        receive_requests(state)
+            # increment the epoch from current -> current + 1
+            # and, if necessary, restart the epoch timer
+            state = increment_epoch(state)
+
+            # continue listening for requests
+            receive_requests(state)
+
+          :raft ->
+            # start to synchronously replicate the batch for the current epoch to other
+            # Sequencers in the current Sequencer's replication group with Raft. Cannot yet
+            # broadcast the batch to the Schedulers since need to commit the batch first
+            # by replicating to enough members of the replication group
+            state = replicate_batch_raft(state)
+
+            # increment the epoch from current -> current + 1
+            state = increment_epoch(state)
+
+            # continue listening for requests
+            receive_requests(state)
+        end
+
+      # ------------------------------
+      # messages for the Raft protocol
+      # ------------------------------
+
+      {sequencer_sender, rpc = %Raft.AppendEntries{}} ->
+        
+        # handle the AppendEntries RPC based on the current role of the Sequencer's Raft 
+        # state. If the current role is the `leader`, potentially update state to become 
+        # a follower. If the current role is `follower`, attempt to update the local Raft
+        # log with the entries that the leader is attempting to replicate and respond with
+        # an AppendEntries.Response message
+
+        case Raft.current_role?(state.raft) do
+          :leader ->
+            # handle the AppendEntries request msg by updating necessary leader state
+            state = Raft.Leader.Handler.append_entries_request(state.raft, rpc, sequencer_sender) |> update(state)
+
+            receive_requests(state)
+
+          :follower ->
+            # handle the AppendEntries request msg by updating necessary follower state
+            state = Raft.Follower.Handler.append_entries_request(state.raft, rpc, sequencer_sender) |> update(state)
+
+            # check if can apply the next entry in the Raft log locally, since perhaps the
+            # Sequencer has received confirmation from the leader Sequencer of the current
+            # replication group marking the next Raft log entry as commited
+            if Raft.Follower.can_apply_next?(state.raft) do
+              # update the Raft state prior to applying
+              state = Raft.Follower.prepate_to_apply(state.raft) |> update(state)
+
+              IO.puts("[node #{whoami()}][follower] ready to apply at Raft log index: #{inspect(state.raft.last_applied)}")
+              
+              log_entry_to_apply = Raft.Log.get_entry_at_index(state.raft.log, _apply_index=state.raft.last_applied)
+
+              IO.puts("[node #{whoami()}][follower] applying a LogEntry batch of transactions: #{inspect(log_entry_to_apply.batch)}")
+              IO.puts("[node #{whoami()}][follower] the apply is for epoch [#{log_entry_to_apply.index}]")
+
+              # apply the entry at the Raft log to be applied at by sending the batch of Transactions
+              # for that log entry to the Schedulers on the same replica as the current Sequencer 
+              # process that is in Raft `follower` state
+              broadcast_batch(state, 
+                _for_epoch=log_entry_to_apply.index, 
+                _batch=log_entry_to_apply.batch
+              )
+
+              # continue listening for requests
+              receive_requests(state)
+            else
+              # no update yet to the commit index from the Sequencer that is the leader of
+              # the current replication group, so continue listening for requests
+              receive_requests(state)
+            end
+        end
+
+      {sequencer_sender, rpc = %Raft.AppendEntries.Response{}} ->
+
+        # for the AppendEntries response, if the current Raft state is the `leader`, attempt
+        # to commit the Raft log entry at the next index, otherwise if in `follower` state,
+        # ignore the message since it is the leader's responsibility to commit entries
+
+        case Raft.current_role?(state.raft) do
+          :leader ->
+            # handle the AppendEntries response msg by updating necessary leader state
+            state = Raft.Leader.Handler.append_entries_response(state.raft, rpc, sequencer_sender) |> update(state)
+
+            # check if can commit the next entry in the Raft log, which would mean 
+            # finally sending the batch of Transactions to all Schedulers on the same
+            # replica as the current Sequencer process
+            if Raft.Leader.can_commit_next?(state.raft) do
+              # update the Raft state prior to commiting
+              state = Raft.Leader.prepate_to_commit(state.raft) |> update(state)
+
+              IO.puts("[calvin leader] ready to commit at Raft log index #{state.raft.last_applied}")
+              log_entry_to_commit = Raft.Log.get_entry_at_index(state.raft.log, _commit_index=state.raft.last_applied)
+
+              IO.puts("[calvin leader] commiting a LogEntry batch of transactions: #{inspect(log_entry_to_commit.batch)}")
+              IO.puts("[calvin leader] the commit is for epoch [#{log_entry_to_commit.index}]")
+              
+              # since the Transaction batch at the index in the Raft log that is equivalent
+              # to the epoch has been marked as safe to commit, perform the commit by
+              # sending the batch in broadcast manner to all Schedulers on this replica
+              broadcast_batch(state, 
+                _for_epoch=log_entry_to_commit.index, 
+                _batch=log_entry_to_commit.batch
+              )
+
+              # update followers of the replica group since the commit index was updated earlier
+              # by the AppendEntries response msg handler
+              Raft.Leader.broadcast_heartbeat_rpc(state.raft)
+
+              # continue listening for requests
+              receive_requests(state)
+            else
+              # keep waiting for more AppendEntries.Response since have not yet heard
+              # from enough of the members of the replication group to safely mark the
+              # next log entry as commited
+              receive_requests(state)
+            end
+
+          :follower ->
+            receive_requests(state)
+        end
 
       # ----------------------------
       # testing / debugging messages
@@ -462,6 +689,22 @@ defmodule Sequencer do
         send(debug_sender, state)
         receive_requests(state)
     end
+  end
+
+  @doc """
+  Syncronously starts to replicate the batch of Transactions received on the current Sequencer
+  RSM, which resides on the leader replica, to all of the Sequencer components on other replicas
+  that are in this Sequencer's replication group via Raft
+  """
+  @spec replicate_batch_raft(%Sequencer{}) :: %Sequencer{}
+  def replicate_batch_raft(state) do
+    # perform the steps before replication
+    state = Raft.prepare_to_replicate(state.raft, _batch=Map.get(state.epoch_logs, state.current_epoch)) |> update(state)
+
+    # replicate the batch via AppendEntries RPC from the Raft protocol
+    state = Raft.replicate(state.raft) |> update(state)
+
+    state
   end
 
   @doc """
@@ -497,15 +740,35 @@ defmodule Sequencer do
   end
 
   @doc """
-  Starts the epoch timer of the Sequencer RSM if the Sequencer is part of the main replica
+  Starts the epoch timer of the Sequencer RSM if the Sequencer is either part of the main
+  replica when using ReplicationScheme.Async or part of the leader replica when using 
+  ReplicationScheme.Raft. In the current configuration, the leader or the main replica is
+  responsible for maintaining a timer to increment epochs and initiate either async or 
+  synchronous Raft-based replication of Transactional input for that epoch
   """
   @spec start_epoch_timer(%Sequencer{}) :: %Sequencer{}
   def start_epoch_timer(state) do
-    if Component.on_main_replica?(state) do
-      new_epoch_timer = timer(state.epoch_timer_duration)
-      %{state | epoch_timer: new_epoch_timer}
-    else
-      state
+    case Configuration.using_replication?(state.configuration) do
+      :async ->
+        if Component.on_main_replica?(state) do
+          # start the timer if using async replication and the current Sequencer
+          # is on the main replica, since it will be in charge of relaying
+          # the epoch number to the secondary replicas
+          new_epoch_timer = timer(state.epoch_timer_duration, :epoch_timer)
+          %{state | epoch_timer: new_epoch_timer}
+        else
+          state
+        end
+      :raft ->
+        if Component.on_leader_replica?(state) do
+          # start the timer if using synchronous Raft-based replication and the current
+          # sequencer is on the leader replica, since it will be in charge of initiating
+          # the replication of collected Transactions
+          new_epoch_timer = timer(state.epoch_timer_duration, :epoch_timer)
+          %{state | epoch_timer: new_epoch_timer}
+        else
+          state
+        end
     end
   end
 
@@ -538,8 +801,8 @@ defmodule Sequencer do
 
     IO.puts("[node #{whoami()}] current state of `epoch_logs`: #{inspect(state.epoch_logs)}")
 
-    # if on main replica, start the timer for duration of epoch
-    # TODO: async replication mode supported only
+    # if on main replica or leader replica, start the timer for
+    # duration of epoch
     state = start_epoch_timer(state)
 
     state
@@ -550,11 +813,24 @@ defmodule Sequencer do
   """
   @spec start(%Sequencer{}) :: no_return()
   def start(initial_state) do
-    # increment the epoch from 0 -> 1
-    state = increment_epoch(initial_state)
+    # configure the initial Raft state for the Sequencer process if using Raft-based
+    # synchronous replication with ReplicationScheme.Raft
+    if Configuration.using_replication?(initial_state.configuration) == :raft do
+      # initialize the state for Raft protocol
+      state = initialize_raft(initial_state)
 
-    # start accepting requests from clients
-    receive_requests(state)
+      # increment the epoch from 0 -> 1
+      state = increment_epoch(state)
+
+      # start accepting requests from clients
+      receive_requests(state)
+    else
+      # increment the epoch from 0 -> 1
+      state = increment_epoch(initial_state)
+
+      # start accepting requests from clients
+      receive_requests(state)
+    end
   end
 end
 
@@ -914,14 +1190,33 @@ defmodule Component do
   end
 
   @doc """
-  Returns whether a given component / process `proc` is located at the current 
-  main replica
+  When using ReplicationScheme.Async, returns whether a given component / process `proc` 
+  is located on the main replica
   """
   @spec on_main_replica?(%Storage{} | %Sequencer{} | %Scheduler{}) :: boolean()
   def on_main_replica?(proc) do
     main_replica = proc.configuration.replication_scheme.main_replica
     replica = proc.replica
     if replica == main_replica do
+      true
+    else
+      false
+    end
+  end
+
+  @doc """
+  When using ReplicationScheme.Raft, returns whether a given component / process `proc`
+  is located on the leader replica
+  """
+  @spec on_leader_replica?(%Storage{} | %Sequencer{} | %Scheduler{}) :: boolean()
+  def on_leader_replica?(proc) do
+    # get which replica is the current leader for the given process
+    # replication group
+    leader_replica = ReplicationScheme.Raft.get_leader_for_partition(
+      _replication_scheme=proc.configuration.replication_scheme,
+      _partition=proc.partition
+    )
+    if proc.replica == leader_replica do
       true
     else
       false
