@@ -490,19 +490,19 @@ defmodule Sequencer do
         # continue listening for requests
         receive_requests(state)
 
-      # AsyncReplicateBatchRequest sent by the Sequencers on the main replica which notifies the Sequencers 
+      # Async.ReplicateBatch request sent by the Sequencers on the main replica which notifies the Sequencers 
       # on the secondary replicas of Transactions received during the given epoch and allows the
       # Sequencer RSM to update it's state and move up the epoch to synchronize
-      {sequencer_sender, %AsyncReplicateBatchRequest{
+      {sequencer_sender, %Async.ReplicateBatch{
         epoch: epoch,
         batch: batch
       }} ->
-        IO.puts("[node #{whoami()}] received an AsyncReplicateBatchRequest from Sequencer #{sequencer_sender}
+        IO.puts("[node #{whoami()}] received an Async.ReplicateBatch request from Sequencer #{sequencer_sender}
         for epoch: #{epoch}
         batch: #{inspect(batch)}")
 
         # set the current epoch to the one that the main replica has sent via the 
-        # AsyncReplicateBatchRequest in order to sync up and set the log to be
+        # Async.ReplicateBatch request in order to sync up and set the log to be
         # empty initially
         state = %{state | current_epoch: epoch}
         state = initialize_log(state, state.current_epoch)
@@ -715,7 +715,7 @@ defmodule Sequencer do
   @spec replicate_batch_async(%Sequencer{}) :: no_return()
   def replicate_batch_async(state) do
     # create the async replication request message
-    async_replicate_msg = %AsyncReplicateBatchRequest{
+    async_replicate_msg = %Async.ReplicateBatch{
       epoch: state.current_epoch,
       # log of Transactions for the current epoch
       batch: Map.get(state.epoch_logs, state.current_epoch)

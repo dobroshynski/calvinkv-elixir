@@ -2,13 +2,12 @@
 # Sequencers in their replication group to asynchronously replicate the
 # Transaction batch input for an epoch
 
-# TODO: async replication mode supported only
-# assumes that every ReplicateBatchRequest for every `epoch` gets delivered
+# assumes that every ReplicateBatch request for every `epoch` gets delivered
 # as expected, so the replicas do not get out of sync and epochs on replicas get incremented
-# roughly at the same pace. This should be adjusted for async network model where messages can
-# be dropped, delayed, and re-ordered
+# roughly at the same pace. For synchronous replication, can use the Raft-based synchronous
+# replication with Raft.AppendEntries requests
 
-defmodule AsyncReplicateBatchRequest do
+defmodule Async.ReplicateBatch do
   @enforce_keys [:epoch, :batch]
 
   defstruct(
@@ -17,11 +16,11 @@ defmodule AsyncReplicateBatchRequest do
   )
 
   @doc """
-  Creates a new AsyncReplicateBatchRequest
+  Creates a new Async.ReplicateBatch message
   """
-  @spec new(non_neg_integer(), [%Transaction{}]) :: %AsyncReplicateBatchRequest{}
+  @spec new(non_neg_integer(), [%Transaction{}]) :: %Async.ReplicateBatch{}
   def new(epoch, batch) do
-    %AsyncReplicateBatchRequest{
+    %Async.ReplicateBatch{
       epoch: epoch,
       batch: batch
     }
