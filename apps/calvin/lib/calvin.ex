@@ -354,7 +354,7 @@ defmodule Sequencer do
 
     recipient_replica = if Configuration.using_replication?(state.configuration) == :async, 
       do: replication_scheme.main_replica,
-      else: ReplicationScheme.get_leader_for_partition(
+      else: ReplicationScheme.Raft.get_leader_for_partition(
         _replication_scheme=replication_scheme,
         _paritition=state.partition
       )
