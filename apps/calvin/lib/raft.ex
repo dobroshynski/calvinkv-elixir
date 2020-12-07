@@ -7,9 +7,8 @@
 defmodule Raft do
   @enforce_keys [:log, :current_term, :commit_index, :last_applied]
 
-  import Emulation, only: [send: 2, timer: 1, whoami: 0, cancel_timer: 1, timer: 2]
-  import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+  import Emulation, only: [send: 2]
+  import Kernel, except: [send: 2]
 
   # Module for a Raft log comprising of Log.Entry entries. The log is 1-index based, and the
   # index in the Log corresponds to the epoch of the batch stored in the Entry at that index
@@ -229,7 +228,7 @@ defmodule Raft do
         prev_log_index: nil,
         prev_log_term: nil,
         leader_commit_index: nil,
-        entries: nil,
+        entries: nil
       )
   
       @doc """
@@ -416,7 +415,7 @@ defmodule Raft do
       Debug.log("commit index of #{state.commit_index} > last applied: #{state.last_applied}, can commit!", _role="leader")
 
       # update the state with new lastApplied
-      state = %{state | last_applied: state.last_applied + 1}
+      %{state | last_applied: state.last_applied + 1}
     end
 
     @doc """
@@ -453,15 +452,15 @@ defmodule Raft do
     def update_commit_index(state) do
       n = state.commit_index + 1
 
-      Debug.log("checking if can update commit index to #{n}...", role="leader")
+      Debug.log("checking if can update commit index to #{n}...", _role="leader")
   
       # trying to update the commit index on leader to N
       # conditions from &5.3, &5.4 needed to update the commit index
       if Raft.Utils.majority_match?(state, n) && Log.logged?(state.log, n) &&
            Log.get_entry_at_index(state.log, n).term == state.current_term do
   
-        Debug.log("current matchIndex: #{inspect(state.match_index)}", role="leader")
-        Debug.log("successfully updated commit index to #{n}", role="leader")
+        Debug.log("current matchIndex: #{inspect(state.match_index)}", _role="leader")
+        Debug.log("successfully updated commit index to #{n}", _role="leader")
         # set commitIndex = N
         %{state | commit_index: n}
       else
@@ -512,7 +511,7 @@ defmodule Raft do
       Handler function for an AppendEntries request
       """
       @spec append_entries_request(%Raft{}, %Raft.AppendEntries{}, atom()) :: %Raft{}
-      def append_entries_request(state, request, sender) do
+      def append_entries_request(state, _request, _sender) do
         # return the state unchanged
         state
       end
@@ -531,7 +530,7 @@ defmodule Raft do
 
         state = Raft.Leader.update_records(state, 
           _for_replica=response.replica, 
-          _with_success?=response.success, 
+          _with_success=response.success, 
           _highest_index_matched=response.log_index
         )
 
@@ -625,7 +624,7 @@ defmodule Raft do
       Debug.log("commit index is higher than last applied, so apply next operation", _role="follower")
 
       # update the state with new lastApplied
-      state = %{state | last_applied: state.last_applied + 1}
+      %{state | last_applied: state.last_applied + 1}
     end
 
     @doc """

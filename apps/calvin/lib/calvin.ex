@@ -10,9 +10,9 @@ defmodule Calvin do
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
-  # Helper function to launch num_partitions Sequencer components
-  # for a given replica with a given Configuration
-  defp launch_partitioned_sequencer(replica, num_partitions, configuration) do
+  # Helper function to launch `num_partitions` Sequencer components
+  # for a given replica with a given Configuration and partition view
+  defp launch_partitioned_sequencer(replica, configuration) do
     # create as many Sequencer components as there are partitions
     partition_view = Configuration.get_partition_view(configuration)
     Enum.map(partition_view, 
@@ -26,9 +26,9 @@ defmodule Calvin do
     )
   end
 
-  # Helper function to launch num_partitions Scheduler components
-  # for a given replica with a given Configuration
-  defp launch_partitioned_scheduler(replica, num_partitions, configuration) do
+  # Helper function to launch `num_partitions` Scheduler components
+  # for a given replica with a given Configuration and partition view
+  defp launch_partitioned_scheduler(replica, configuration) do
     # create as many Scheduler components as there are partitions
     partition_view = Configuration.get_partition_view(configuration)
     Enum.map(partition_view, 
@@ -42,9 +42,9 @@ defmodule Calvin do
     )
   end
 
-  # Helper function to launch num_partitions Storage components
-  # for a given replica with a given Configuration
-  defp launch_partitioned_storage(replica, num_partitions, configuration) do
+  # Helper function to launch `num_partitions` Storage components
+  # for a given replica with a given Configuration and partition view
+  defp launch_partitioned_storage(replica, configuration) do
     # create as many Storage components as there are partitions
     partition_view = Configuration.get_partition_view(configuration)
     Enum.map(partition_view, 
@@ -59,7 +59,9 @@ defmodule Calvin do
   end
 
   @doc """
-  Launches a partitioned, replicated Calvin system given a Configuration
+  Launches a partitioned, replicated Calvin system given a Configuration with `num_partitions`
+  and `num_replicas` given by `configuration.partition_scheme.num_partitions` and 
+  `configuration.replication_scheme.num_replicas`
   """
   @spec launch(%Configuration{}) :: no_return()
   def launch(configuration) do
@@ -72,11 +74,11 @@ defmodule Calvin do
     Enum.map(replica_view, 
       fn replica ->
         # launch Sequencer components
-        launch_partitioned_sequencer(_replica=replica, _partitions=num_partitions, configuration)
+        launch_partitioned_sequencer(_replica=replica, _configuration=configuration)
         # launch Scheduler components
-        launch_partitioned_scheduler(_replica=replica, _partitions=num_partitions, configuration)
+        launch_partitioned_scheduler(_replica=replica, _configuration=configuration)
         # launch Storage components
-        launch_partitioned_storage(_replica=replica, _partitions=num_partitions, configuration)
+        launch_partitioned_storage(_replica=replica, _configuration=configuration)
       end
     )
 
@@ -91,8 +93,7 @@ end
 
 defmodule Storage do
   import Emulation, only: [send: 2, whoami: 0, mark_unfuzzable: 0]
-  import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+  import Kernel, except: [send: 2]
 
   defstruct(
     type: :storage,
@@ -178,28 +179,28 @@ defmodule Storage do
 
     receive do
       # raw CRUD messages for the key-value store
-      {sender, {:READ, key}} ->
+      {_scheduler_sender, {:READ, key}} ->
         Debug.log("received a READ request for key {#{key}}")
 
-        {ret, state} = exec_storage_command(state, :READ, key)
+        {_ret, state} = exec_storage_command(state, :READ, key)
 
         receive_commands(state)
-      {sender, {:CREATE, key, val}} ->
+      {_scheduler_sender, {:CREATE, key, val}} ->
         Debug.log("received a CREATE request setting key {#{key}} to value {#{val}}")
 
-        {ret, state} = exec_storage_command(state, :CREATE, key, val)
+        {_ret, state} = exec_storage_command(state, :CREATE, key, val)
 
         receive_commands(state)
-      {sender, {:UPDATE, key, val}} -> 
+      {_scheduler_sender, {:UPDATE, key, val}} -> 
         Debug.log("received a UPDATE request updating key {#{key}} to value {#{val}}")
         
-        {ret, state} = exec_storage_command(state, :UPDATE, key, val)
+        {_ret, state} = exec_storage_command(state, :UPDATE, key, val)
 
         receive_commands(state)
-      {sender, {:DELETE, key}} ->
+      {_scheduler_sender, {:DELETE, key}} ->
         Debug.log("received a DELETE request deleting value associated with key {#{key}}")
 
-        {ret, state} = exec_storage_command(state, :DELETE, key)
+        {_ret, state} = exec_storage_command(state, :DELETE, key)
         
         receive_commands(state)
 
@@ -309,8 +310,7 @@ defmodule Sequencer do
     # split the log of Transactions for the current epoch by partitioning based on the
     # current PartitionScheme
     partitioned_tx_batches = PartitionScheme.partition_transactions(
-      _tx_batch=batch,
-      _partition_scheme=state.configuration.partition_scheme
+      _tx_batch=batch
     )
     Debug.log("partitioned batch for epoch #{epoch}: #{inspect(partitioned_tx_batches)}")
 
@@ -469,7 +469,7 @@ defmodule Sequencer do
     receive do
       # Transaction request from a client
       {client_sender, tx = %Transaction{
-        operations: operations
+        operations: _operations
       }} ->
         Debug.log("received a Transaction request: #{inspect(tx)} from client {#{client_sender}}")
         
@@ -1037,9 +1037,11 @@ defmodule Scheduler do
   def receive_batched_transaction_messages(state) do
     receive do
       {sender, msg = %BatchTransactionMessage{
-        sequencer_id: sequencer_id,
-        epoch: epoch,
-        batch: batch
+        # TODO: potentially update local Scheduler state to save from which Sequencer
+        # `sequencer_id` the batch comes from 
+        sequencer_id: _sequencer_id,
+        epoch: _epoch,
+        batch: _batch
       }} ->
         Debug.log("msg received: #{inspect(msg)} from node #{sender}")
 

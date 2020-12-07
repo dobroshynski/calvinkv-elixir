@@ -131,7 +131,7 @@ defmodule PartitioningTest do
     tx_batch = PartitionScheme.generate_participating_partitions(
       _tx_batch=tx_batch, partition_scheme
     )
-    partitioned_batch = PartitionScheme.partition_transactions(_tx_batch=tx_batch, partition_scheme)
+    partitioned_batch = PartitionScheme.partition_transactions(_tx_batch=tx_batch)
 
     # check that each partitioned batch contains a single Transaction
     # for that partition

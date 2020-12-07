@@ -34,9 +34,9 @@ defmodule Configuration do
   @spec using_replication?(%Configuration{}) :: atom()
   def using_replication?(configuration) do
     case configuration.replication_scheme do
-      scheme = %ReplicationScheme.Async{} ->
+      %ReplicationScheme.Async{} ->
         :async
-      scheme = %ReplicationScheme.Raft{} ->
+      %ReplicationScheme.Raft{} ->
         :raft
     end
   end

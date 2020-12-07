@@ -60,11 +60,11 @@ defmodule PartitionScheme do
   end
 
   @doc """
-  Given a batch of Transactions and a PartitionScheme, returns a map of partitioned Transactions
-  in the form of {partition number -> Transaction batch for that partition}
+  Given a batch of Transactions with their read/write sets generated, returns a map of
+  partitioned Transactions in the form of {partition number -> Transaction batch for that partition}
   """
-  @spec partition_transactions([%Transaction{}], %PartitionScheme{}) :: %{}
-  def partition_transactions(tx_batch, partition_scheme) do
+  @spec partition_transactions([%Transaction{}]) :: %{}
+  def partition_transactions(tx_batch) do
     # iterate the batch of all Transactions and reduce into a map of {partition -> Transactions}
     Enum.reduce(tx_batch, %{}, 
       fn tx, acc ->
