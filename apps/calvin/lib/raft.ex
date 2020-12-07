@@ -678,6 +678,7 @@ defmodule Raft do
           Log.entry_matches?(state.log, request.prev_log_index, request.prev_log_term) == false ->
             # respond with success = false since the entry in Raft log did not match
             response = Raft.AppendEntries.Response.new(
+              state.my_replica,
               state.current_term,
               request.prev_log_index,
               false

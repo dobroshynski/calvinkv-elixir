@@ -50,7 +50,7 @@ defmodule ReplicationScheme.Raft do
   Returns the current leader replica for a given partition, the participants of which across
   replicas make up a replication group
   """
-  @spec get_leader_for_partition(%ReplicationScheme.Raft{}, non_neg_integer()) :: %ReplicationScheme.Raft{}
+  @spec get_leader_for_partition(%ReplicationScheme.Raft{}, non_neg_integer()) :: atom()
   def get_leader_for_partition(replication_scheme, partition) do
     Map.get(replication_scheme.current_leaders, partition)
   end
