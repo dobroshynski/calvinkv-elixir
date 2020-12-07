@@ -1,7 +1,3 @@
-# A single node / process in the Calvin system
-# TODO: currently only supports basic KV operations by
-# exposing a simple CRUD in-memory storage interface
-
 # Calvin deployment module handling launch of Storage, Sequencer, and
 # Scheduler components given a Configuration
 
@@ -82,7 +78,7 @@ defmodule Calvin do
       end
     )
 
-    IO.puts("Launched a Calvin deployment of #{num_replicas} replica(s), each partitioned across #{num_partitions} machines per replica")
+    IO.puts("Launched a Calvin deployment of #{num_replicas} replica(s), each partitioned across #{num_partitions} machine(s) per replica")
   end
 end
 
@@ -219,8 +215,6 @@ defmodule Storage do
   """
   @spec start(%Storage{}) :: no_return()
   def start(initial_state) do
-    # TODO: do any initializations here for this component / process
-
     # mark as unfuzzable since every `send` message to the Storage RSM
     # will be sent by a Scheduler on the same physical machine
     mark_unfuzzable()
@@ -248,7 +242,7 @@ defmodule Sequencer do
     # deployment Configuration
     configuration: nil,
 
-    epoch_timer_duration: 2000, # TODO: make 2 seconds for now
+    epoch_timer_duration: 10, # default epoch duration is 10ms
     epoch_timer: nil,
 
     current_epoch: nil,
@@ -845,9 +839,8 @@ end
 # manner in the order that it determines the transactions to be in for a given epoch
 
 defmodule Scheduler do
-  import Emulation, only: [send: 2, timer: 1, whoami: 0, mark_unfuzzable: 0]
-  import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+  import Emulation, only: [send: 2, mark_unfuzzable: 0]
+  import Kernel, except: [send: 2]
 
   defstruct(
     type: :scheduler,
@@ -1077,8 +1070,6 @@ defmodule Scheduler do
   """
   @spec start(%Scheduler{}) :: no_return()
   def start(initial_state) do
-    # TODO: do any initializations here for this component / process
-    
     # mark as unfuzzable for now, since assume that the `send` messages from
     # Sequencers within a replica get delivered without delays to all Schedulers
     mark_unfuzzable()
@@ -1087,91 +1078,6 @@ defmodule Scheduler do
 
     # start accepting BatchTransactionMessage messages from the Sequencer components
     receive_batched_transaction_messages(state)
-  end
-end
-
-defmodule CalvinNode do
-  import Emulation, only: [send: 2, timer: 1, now: 0, whoami: 0]
-
-  import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
-
-  require Fuzzers
-  require Logger
-
-  # What a CalvinNode process requires as it's state
-  defstruct(
-    # The replica this node belongs to
-    # letter from a -> z
-    replica: nil,
-    # The partition this node belongs to
-    # number from 1 -> some upper bound
-    partition: nil,
-
-    # The key-value in-memory storage for this node
-    store: %{}
-  )
-
-  @spec new(atom(), atom()) :: %CalvinNode{}
-  def new(replica, partition) do
-    %CalvinNode{
-      replica: replica,
-      partition: partition,
-    }
-  end
-
-  @spec node_id(%CalvinNode{}) :: atom()
-  def node_id(node) do
-    replica = to_charlist(node.replica)
-    partition = to_charlist(node.partition)
-    List.to_atom(replica ++ partition)
-  end
-
-  # def exec_storage_command(state, command, key, val) do
-  #   case command do
-  #     :read ->
-  #       store = state.store
-
-  #     :create ->
-
-  #     :update ->
-
-  #     :delete ->
-
-  #   end
-  # end
-
-  @doc """
-  Function to run the Calvin node as a state machine and start listening to 
-  messages
-  """
-  @spec run(%CalvinNode{}) :: no_return()
-  def run(state) do
-    # IO.puts("current state of KV store: #{inspect(state.store)}")   
-     
-    receive do
-      # messages from external clients
-      {sender, {:read, key}} ->
-        IO.puts("[node #{whoami()}] received a READ request for key {#{key}}")
-
-        # how can potentially call code to execute the command against a 
-        # storage engine
-        # {state, result} = exec_storage_command(state, :read, key, nil)
-
-        run(state)
-      {sender, {:create, key, val}} ->
-        IO.puts("[node #{whoami()}] received a CREATE request setting key {#{key}} to value {#{val}}")
-
-        run(state)
-      {sender, {:update, key, val}} -> 
-        IO.puts("[node #{whoami()}] received a UPDATE request updating key {#{key}} to value {#{val}}")
-
-        run(state)
-      {sender, {:delete, key}} ->
-        IO.puts("[node #{whoami()}] received a DELETE request deleting value associated with key {#{key}}")
-        
-        run(state)
-      end
   end
 end
 

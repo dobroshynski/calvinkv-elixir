@@ -151,7 +151,7 @@ defmodule Transaction do
     # duration in milliseconds
     duration_ms = duration_mus / 1000
 
-    IO.puts("[#{tx.id}] executed in #{duration_ms}ms on #{physical_node}")
+    Debug.Timing.log("{#{tx.id}} executed in #{duration_ms}ms on #{physical_node}")
 
     %{tx |
       finished: time, 
