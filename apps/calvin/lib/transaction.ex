@@ -119,8 +119,45 @@ defmodule Transaction do
     write_set: nil,
 
     # participating partitions for this Transaction
-    participating_partitions: nil
+    participating_partitions: nil,
+
+    # for timing of Transaction start / execution from
+    # client to Storage
+    started: nil,
+    finished: nil,
+    duration: nil,
+
+    # optional Transaction id for debugging purposes
+    id: nil
   )
+
+  @doc """
+  Sets a timestamp to when this Transaction was started, being sent
+  by a client to a Sequencer component
+  """
+  @spec set_started(%Transaction{}, non_neg_integer()) :: %Transaction{}
+  def set_started(tx, time) do
+    %{tx | started: time}
+  end
+
+  @doc """
+  Sets a timestamp to when this Transaction executed against a Storage
+  component and sets the duration based on `tx.started` and `tx.finished`
+  """
+  @spec set_finished(%Transaction{}, non_neg_integer(), atom()) :: %Transaction{}
+  def set_finished(tx, time, physical_node) do
+    # duration in microseconds
+    duration_mus = DateTime.diff(time, tx.started, :microsecond)
+    # duration in milliseconds
+    duration_ms = duration_mus / 1000
+
+    IO.puts("[#{tx.id}] executed in #{duration_ms}ms on #{physical_node}")
+
+    %{tx |
+      finished: time, 
+      duration: duration_ms
+    }
+  end
 
   @doc """
   Adds a timestamp to the Transaction based on local system clock
@@ -183,6 +220,16 @@ defmodule Transaction do
         end
       end
     )
+  end
+
+  @doc """
+  Creates a new Transaction with given operations and a given id for
+  debugging purposes
+  """
+  @spec new([%Transaction.Op{}], atom()) :: %Transaction{}
+  def new(operations, id) do
+    tx = Transaction.new(operations)
+    %{tx | id: id}
   end
 
   @doc """

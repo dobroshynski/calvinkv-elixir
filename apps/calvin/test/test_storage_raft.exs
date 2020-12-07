@@ -115,7 +115,7 @@ defmodule StorageTest.Raft do
 
   test "Raft replication with multiple clients on different partitions works as expected" do
     Emulation.init()
-    Emulation.append_fuzzers([Fuzzers.delay(200)])
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration with 7 replicas partitioned across 3 nodes 
     # using Raft for replication
@@ -167,7 +167,7 @@ defmodule StorageTest.Raft do
         kv_store_part_2 = Enum.at(kv_stores, 1)
         kv_store_part_3 = Enum.at(kv_stores, 2)
 
-        assert kv_store_part_1 = %{a: 1, b: 1}
+        assert kv_store_part_1 == %{a: 1, b: 1}
         assert kv_store_part_2 == %{}
         assert kv_store_part_3 == %{w: 1, z: 1}
 
@@ -180,7 +180,7 @@ defmodule StorageTest.Raft do
         kv_store_part_2 = Enum.at(kv_stores, 1)
         kv_store_part_3 = Enum.at(kv_stores, 2)
 
-        assert kv_store_part_1 = %{a: 1, b: 1}
+        assert kv_store_part_1 == %{a: 1, b: 1}
         assert kv_store_part_2 == %{}
         assert kv_store_part_3 == %{w: 1, z: 1}
       end
@@ -199,7 +199,7 @@ defmodule StorageTest.Raft do
 
   test "Raft replication with multiple clients on different replicas works as expected" do
     Emulation.init()
-    Emulation.append_fuzzers([Fuzzers.delay(10)])
+    Emulation.append_fuzzers([Fuzzers.delay(2)])
 
     # create a configuration with 3 replicas partitioned across 3 nodes 
     # using Raft for replication
@@ -252,7 +252,7 @@ defmodule StorageTest.Raft do
         kv_store_part_2 = Enum.at(kv_stores, 1)
         kv_store_part_3 = Enum.at(kv_stores, 2)
 
-        assert kv_store_part_1 = %{a: 1, b: 1}
+        assert kv_store_part_1 == %{a: 1, b: 1}
         assert kv_store_part_2 == %{m: 1}
         assert kv_store_part_3 == %{w: 1, z: 1}
 
@@ -265,7 +265,7 @@ defmodule StorageTest.Raft do
         kv_store_part_2 = Enum.at(kv_stores, 1)
         kv_store_part_3 = Enum.at(kv_stores, 2)
 
-        assert kv_store_part_1 = %{a: 1, b: 1}
+        assert kv_store_part_1 == %{a: 1, b: 1}
         assert kv_store_part_2 == %{m: 1}
         assert kv_store_part_3 == %{w: 1, z: 1}
 
@@ -278,7 +278,7 @@ defmodule StorageTest.Raft do
         kv_store_part_2 = Enum.at(kv_stores, 1)
         kv_store_part_3 = Enum.at(kv_stores, 2)
 
-        assert kv_store_part_1 = %{a: 1, b: 1}
+        assert kv_store_part_1 == %{a: 1, b: 1}
         assert kv_store_part_2 == %{m: 1}
         assert kv_store_part_3 == %{w: 1, z: 1}
       end

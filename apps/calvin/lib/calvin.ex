@@ -90,7 +90,7 @@ end
 # mimics any CRUD interface that can be substituted in.
 
 defmodule Storage do
-  import Emulation, only: [send: 2, whoami: 0]
+  import Emulation, only: [send: 2, whoami: 0, mark_unfuzzable: 0]
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
@@ -219,6 +219,10 @@ defmodule Storage do
   @spec start(%Storage{}) :: no_return()
   def start(initial_state) do
     # TODO: do any initializations here for this component / process
+
+    # mark as unfuzzable since every `send` message to the Storage RSM
+    # will be sent by a Scheduler on the same physical machine
+    mark_unfuzzable()
 
     # start accepting storage execution commands
     receive_commands(initial_state)
@@ -841,7 +845,7 @@ end
 # manner in the order that it determines the transactions to be in for a given epoch
 
 defmodule Scheduler do
-  import Emulation, only: [send: 2, timer: 1, whoami: 0]
+  import Emulation, only: [send: 2, timer: 1, whoami: 0, mark_unfuzzable: 0]
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
@@ -965,6 +969,11 @@ defmodule Scheduler do
   """
   @spec tx_execute(%Scheduler{}, %Transaction{}, atom()) :: no_return()
   def tx_execute(state, tx, storage_id) do
+    # mark the Transaction as finished since we are about to execute against
+    # the Storage
+    time = DateTime.utc_now()
+    tx = Transaction.set_finished(tx, _time=time, _node=Component.physical_node_id(state))
+
     # execute all of the operations of the given Transaction in linear order
     Enum.map(tx.operations, 
       fn op ->
@@ -1067,6 +1076,11 @@ defmodule Scheduler do
   @spec start(%Scheduler{}) :: no_return()
   def start(initial_state) do
     # TODO: do any initializations here for this component / process
+    
+    # mark as unfuzzable for now, since assume that the `send` messages from
+    # Sequencers within a replica get delivered without delays to all Schedulers
+    mark_unfuzzable()
+
     state = increment_processing_epoch(initial_state)
 
     # start accepting BatchTransactionMessage messages from the Sequencer components
@@ -1335,6 +1349,10 @@ defmodule Client do
 
   def send_tx(client, tx) do
     node = client.calvin_node
+
+    time = DateTime.utc_now()
+    tx = Transaction.set_started(tx, _time=time)
+
     send(node, tx)
   end
 
