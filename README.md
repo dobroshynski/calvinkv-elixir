@@ -1,4 +1,4 @@
-# CalvinKV - Deterministic Distributed Transactions atop a Partitioned, Replicated KV Store 
+# Deterministic Distributed Transactions atop a Partitioned, Replicated KV Store
 
 `@author andrii dobroshynskyi`
 
@@ -34,7 +34,7 @@
 
 - A working prototype of a replicated, partitioned key-value store based on the Calvin system
 
-![diagram](./doc/diagram.jpg)
+![diagram](docs/diagram.jpg)
 
 - Elixir Components for `Sequencer`, `Scheduler`, `Storage` that run as independent RSMs
 
@@ -50,7 +50,7 @@
 
 | Chart 1                   | Chart 2                   |
 |:-------------------------:|:-------------------------:|
-|![chart1](./doc/chart1.png)|![chart2](./doc/chart2.png)|
+|![chart1](docs/chart1.png)|![chart2](docs/chart2.png)|
 
 
 - Supports launch of arbitrary number of replicas partitioned against an arbitrary number of nodes per replica
