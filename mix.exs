@@ -1,4 +1,4 @@
-defmodule CalvinDB.MixProject do
+defmodule CalvinKV.MixProject do
   use Mix.Project
 
   def project do

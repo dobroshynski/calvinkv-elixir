@@ -1,35 +1,71 @@
-# Calvin deterministic distributed transaction layer in Elixir
+# CalvinKV - Deterministic Distributed Transactions atop a Partitioned, Replicated KV Store 
 
 `@author andrii dobroshynskyi`
 
 ## Intro
 
-I am interested in topics in OLTP systems and specifically in distributed transactions, so for the project I would like to implement a system called [Calvin](http://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf) proposed in the paper from 2012 that is meant to be a transaction scheduling and replication layer that can be used on a non-transactional storage system to turn it into a system with support for full ACID transactions.
+- Implementation of a version of system proposed in the [Calvin](http://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf) paper - a partitioned key-value store in Elixir, supporting asynchronous and Raft-based synchronous replication of transactional input, designed to run on arbitrary shared-nothing machines
 
-Calvin comprises of 3 main components that act as "layers" - sequencer, scheduler, and the storage, with the storage engine being able to be "plugged-in" as desired. The sequencer is what reads transactional inputs and takes care of replicating this globally ordered list. The scheduler is the part that executes the transactions in order specified by the sequencer in a deterministic manner with what essentially is two-phase locking but a bit modified. 
+- Deterministic storage system - transaction client requests are agreed upon by designated components of the system and guaranteed to be executed by all replicas and corresponding partitions within each replica
 
-The paper suggests that the system can use both async replication and Paxos based replication, so my plan is to start with the async case to get it working.
+## Why Transactions and (Distributed) Txs?
 
-I suggest that I will first implement a very trivial key-value store supporting CRUD operations for storage and then build functionality on top of that. I also plan to get it working assuming a single-node deployment and then add the extensions to see what scalability we can achieve.
+- Multiple operations applied as an atomic unit, or none of them applied, storage system remains in consistent state
 
-If the implementation goes as planned, time-permitting I would be interested in adding a feature suggested by the Calvin paper to implement a monitoring component to orchistrate failovers and monitor load. 
+- When having multiple replicas that communicate via message passing, how do we ensure they stay in sync? What to do if a replica accepts a transaction but fails just before execution? What about in the middle of transaction execution?
 
-## Implementation plan
+## Why Deterministic storage systems?
 
-I intend to use Elixir for the project since I think it may be helpful to use the Emulation functionality and it's been nice to work with Elixir. I plan to implement first assuming theres is only one node running and then extend to multiple nodes. A tentative outline plan that I have drafted is as follows:
+- No fundamental reason why a transaction should abort amidst a nondeterministic event (machine failure or equivalent) - systems might do so from practical considerations
 
-- Implement basic in-memory key-value store in Elixir
-- Implement the sequencer to take transactional input from clients and generate a sequence of txns to execute in order (paper suggests that this is done in 10ms epochs)
-- Implement the replication component of sequencer to communicate the input across all nodes (initially skip since assuming only one node running)
-- Implement the scheduler that will fire off transaction execution threads and use 2PL with modifications to execute the transactions. 
-- Implement the functionality to recover in case of abort (Calvin requires the node to recover either from a fellow node or by replaying the inputs provided by the sequencer)
-- Run micro-benchmarks to see how compares to the results in paper
-- Time-permitting implement an extension
+- If can agree on input to the system prior to beginning of execution, then on failure and subsequent recovery can
+    - re-play input logged to disk __or__
+    - recover from a fellow replica that is guaranteed to be executing the exact same transactional input
+
+## What is the original Calvin paper about (simplified)?
+
+- The original Calvin paper proposes a layer to run against a non-transactional storage system to transform it into “highly available” DB system supporting ACID transactions
+
+- Splits time into epochs, transactions are batched
+
+- Focuses on throughput, proposing to use a specific locking mechanism to ensure transactions execute in parallel (efficiently) but in agreed upon order against the storage layer
+
+## Results & Some Experiments
+
+- A working prototype of a replicated, partitioned key-value store based on the Calvin system
+
+![diagram](./doc/diagram.jpg)
+
+- Elixir Components for `Sequencer`, `Scheduler`, `Storage` that run as independent RSMs
+
+- Every transaction computes its own write and read sets, data automatically partitioned according to the keys in the operations that determine these sets
+
+- Replication mode specified as `:async` or `:raft`, every Sequencer maintains a Raft state that it uses to manage Raft-based replication
+
+- Why need Raft? Async replication = very difficult failover when primary / main fails, want to use quorum for commit
+
+- Transaction batches get forwarded to correct Schedulers at every epoch & interleaved
+
+- Each storage node only contains the data that it needs to based on the partitioning scheme - system figures out which transaction updates are “local” and which are not and executes accordingly
+
+| Chart 1                   | Chart 2                   |
+|:-------------------------:|:-------------------------:|
+|![chart1](./doc/chart1.png)|![chart2](./doc/chart2.png)|
+
+
+- Supports launch of arbitrary number of replicas partitioned against an arbitrary number of nodes per replica
+
+- Lots of Elixir tests to make sure expected & consistent state & more in code!
+
+## Some remaining questions
+
+- Empty batches need to be replicated by design leading to halts with network delays when delay >> epoch time - ways to optimize?
+
+- Load balancing client requests?
 
 ## Material / References
 
-Some of the papers I have consulted so far that I will be using to implement parts of project.
-
+- Elixir documentation - especially [Enum](https://hexdocs.pm/elixir/Enum.html), [List](https://hexdocs.pm/elixir/List.html)
 - Calvin Paper - [Thomson et al. '12](http://cs.yale.edu/homes/thomson/publications/calvin-sigmod12.pdf)
 - Different print of Calvin paper - [Fast Distributed Transactions and Strongly Consistent Replication for OLTP Database Systems](http://www.cs.umd.edu/~abadi/papers/calvin-tods14.pdf)
 - Paper preceding Calvin by same authors - [Thomson, Abadi VLDB '10](http://www.cs.umd.edu/~abadi/papers/determinism-vldb10.pdf)
