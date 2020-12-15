@@ -108,27 +108,6 @@ defmodule Transaction.Op do
   end
 
   @doc """
-  Given a `Transaction.Op` Transaction operation, a partition, and a PartitionScheme, returns whether 
-  the operation is local to the given `partition` based on the partition key converted from the operation
-  key
-  
-  For example, assuming a PartitionScheme with 2 partitions, an operation of CREATE {a -> 1} is local
-  to partition 1 while operation UPDATE {z -> 0} is local to partition 2, since the `partition_key_map`
-  ranges are [a->m] and [n->z] for partitions 1 and 2, respectively
-  """
-  @spec is_local_to_partition?(%Transaction.Op{}, non_neg_integer(), %PartitionScheme{}) :: boolean()
-  def is_local_to_partition?(op, partition, partition_scheme) do
-    # convert whatever the key for the operation is to a partition key and
-    # use the partition key map in the PartitionScheme to look up the partition
-    local_op_partition = Map.get(partition_scheme.partition_key_map, PartitionScheme.to_partition_key(_value=op.key))
-    if local_op_partition == partition do
-      true
-    else
-      false
-    end
-  end
-
-  @doc """
   Given a `Transaction.Op` returns whether it is a `write` operation
   """
   @spec is_write?(%Transaction.Op{}) :: boolean()

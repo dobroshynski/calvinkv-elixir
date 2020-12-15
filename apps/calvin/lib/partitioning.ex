@@ -15,6 +15,10 @@ defmodule PartitionScheme do
   @doc """
   Given a value and a partition, returns whether the given value is local to the given
   partition based on the given partition scheme
+
+  For example, assuming a PartitionScheme with 2 partitions, value `a` is local to partition 1 
+  while value `z` is local to partition 2, since the `partition_key_map` ranges are [a->m] and [n->z]
+  for partitions 1 and 2, respectively
   """
   @spec is_local?(atom(), non_neg_integer(), %PartitionScheme{}) :: boolean()
   def is_local?(val, partition, partition_scheme) do

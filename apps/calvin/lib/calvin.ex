@@ -8,12 +8,10 @@ defmodule Calvin do
 
   @doc """
   Given a Calvin configuration and a storage state, sets the key-value
-  store states for all Storage components in the system to the given
-  storage state map
-
-  TODO: partition the given `storage_state` such that every Storage
-  component only contains parts of the key-value store state that it
-  is is responsible for based on the partition scheme
+  store states for all Storage components in the system to the appropriate
+  parts of the given storage state map, such that each Storage component
+  contains parts of the given storage state that it is responsible for storing
+  based on the current partition scheme
   """
   @spec set_storage(%Configuration{}, %{}) :: no_return()
   def set_storage(configuration, storage_state) do
@@ -22,7 +20,26 @@ defmodule Calvin do
         storage_view = Configuration.get_storage_view(configuration, replica)
         Enum.map(storage_view, 
           fn storage_id ->
-            send(storage_id, {:set_kv_store, storage_state})
+            # get the part of the given `storage_state` that needs to be sent to 
+            # this Storage component based on the partition scheme
+            kv_store_part = Enum.reduce(storage_state, %{}, 
+              fn {key, val}, acc ->
+                # get the partition that this key-value pair is local to
+                partition = Map.get(configuration.partition_scheme.partition_key_map, PartitionScheme.to_partition_key(_value=key))
+
+                # get the partition of the current `storage_id`
+                storage_partition = String.to_integer(String.at(to_string(storage_id), 1))
+
+                if partition == storage_partition do
+                  Map.put(acc, key, val)
+                else
+                  acc
+                end
+              end
+            )
+            # send a message directly to the Storage component to set the key-value
+            # store state
+            send(storage_id, {:set_kv_store, kv_store_part})
           end
         )
       end
