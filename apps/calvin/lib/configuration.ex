@@ -28,6 +28,19 @@ defmodule Configuration do
   end
 
   @doc """
+  Given a Configuration, returns whether the current configuration contains only a single
+  replica
+  """
+  @spec running_single_replica?(%Configuration{}) :: boolean()
+  def running_single_replica?(configuration) do
+    if configuration.replication_scheme.num_replicas == 1 do
+      true
+    else
+      false
+    end
+  end
+
+  @doc """
   Given a Configuration, returns which type of replication scheme the given configuration
   is using - `async` or `raft`
   """

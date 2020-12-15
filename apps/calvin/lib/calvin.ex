@@ -581,49 +581,68 @@ defmodule Sequencer do
       :epoch_timer ->
         Debug.log("epoch #{state.current_epoch} has ended, sending BatchTransactionMessage to Schedulers, then starting new epoch")
 
-        # handle the end of current epoch based on the current replication scheme. If
-        # using ReplicationScheme.Async, replicate to other secondary replica Sequencers
-        # and send the batch for this epoch to the Schedulers immediately, otherwise, if
-        # using ReplicationScheme.Raft, start the replication and only update the current 
-        # epoch, as the Sequencer can only reliably consider a batch committed, and hence 
-        # apply the entry at the current log position, once it knows the entry is committed.
-        # Applying the entry is in this case equivalent to sending the entry to the Scheduler
-        # processes
+        # first check if need to perform replication or if running in single-replica configuration
+        if Configuration.running_single_replica?(state.configuration) do
+          # since running on a single replica, no need to perform replication, so can broadcast
+          # the relevant batches (those Transactions in which the partition will need to participate in)
+          # to every Scheduler component on this single replica
+          state = broadcast_batch(state, 
+            _for_epoch=state.current_epoch,
+            # all of the Transactions for the current epoch acquired by this Sequencer
+            _batch=Map.get(state.epoch_logs, state.current_epoch)
+          )
 
-        case Configuration.using_replication?(state.configuration) do
-          :async ->
-            # asynchronously replicate the batch for the current epoch to other Sequencers 
-            # in the current Sequencer's replication group
-            replicate_batch_async(state)
+          # increment the epoch from current -> current + 1
+          # and, if necessary, restart the epoch timer
+          state = increment_epoch(state)
 
-            # since using async replication, now can broadcast the relevant batches (those
-            # Transactions in which the partition will need to participate in) for each
-            # Scheduler within the same replica as the current Sequencer
-            state = broadcast_batch(state, 
-              _for_epoch=state.current_epoch,
-              # all of the Transactions for the current epoch acquired by this Sequencer
-              _batch=Map.get(state.epoch_logs, state.current_epoch)
-            )
+          # continue listening for requests
+          receive_requests(state)
+        else
 
-            # increment the epoch from current -> current + 1
-            # and, if necessary, restart the epoch timer
-            state = increment_epoch(state)
-
-            # continue listening for requests
-            receive_requests(state)
-
-          :raft ->
-            # start to synchronously replicate the batch for the current epoch to other
-            # Sequencers in the current Sequencer's replication group with Raft. Cannot yet
-            # broadcast the batch to the Schedulers since need to commit the batch first
-            # by replicating to enough members of the replication group
-            state = replicate_batch_raft(state)
-
-            # increment the epoch from current -> current + 1
-            state = increment_epoch(state)
-
-            # continue listening for requests
-            receive_requests(state)
+          # handle the end of current epoch based on the current replication scheme. If
+          # using ReplicationScheme.Async, replicate to other secondary replica Sequencers
+          # and send the batch for this epoch to the Schedulers immediately, otherwise, if
+          # using ReplicationScheme.Raft, start the replication and only update the current 
+          # epoch, as the Sequencer can only reliably consider a batch committed, and hence 
+          # apply the entry at the current log position, once it knows the entry is committed.
+          # Applying the entry is in this case equivalent to sending the entry to the Scheduler
+          # processes
+          case Configuration.using_replication?(state.configuration) do
+            :async ->
+              # asynchronously replicate the batch for the current epoch to other Sequencers 
+              # in the current Sequencer's replication group
+              replicate_batch_async(state)
+  
+              # since using async replication, now can broadcast the relevant batches (those
+              # Transactions in which the partition will need to participate in) for each
+              # Scheduler within the same replica as the current Sequencer
+              state = broadcast_batch(state, 
+                _for_epoch=state.current_epoch,
+                # all of the Transactions for the current epoch acquired by this Sequencer
+                _batch=Map.get(state.epoch_logs, state.current_epoch)
+              )
+  
+              # increment the epoch from current -> current + 1
+              # and, if necessary, restart the epoch timer
+              state = increment_epoch(state)
+  
+              # continue listening for requests
+              receive_requests(state)
+  
+            :raft ->
+              # start to synchronously replicate the batch for the current epoch to other
+              # Sequencers in the current Sequencer's replication group with Raft. Cannot yet
+              # broadcast the batch to the Schedulers since need to commit the batch first
+              # by replicating to enough members of the replication group
+              state = replicate_batch_raft(state)
+  
+              # increment the epoch from current -> current + 1
+              state = increment_epoch(state)
+  
+              # continue listening for requests
+              receive_requests(state)
+          end
         end
 
       # ------------------------------
