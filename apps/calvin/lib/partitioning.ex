@@ -13,6 +13,20 @@ defmodule PartitionScheme do
   )
 
   @doc """
+  Given a value and a partition, returns whether the given value is local to the given
+  partition based on the given partition scheme
+  """
+  @spec is_local?(atom(), non_neg_integer(), %PartitionScheme{}) :: boolean()
+  def is_local?(val, partition, partition_scheme) do
+    stored_on_partition = Map.get(partition_scheme.partition_key_map, PartitionScheme.to_partition_key(_value=val))
+    if stored_on_partition == partition do
+      true
+    else
+      false
+    end
+  end
+
+  @doc """
   Generates a key partition map given `num_partitions` of partitions. This maps 
   each value in a key range from a -> z to an assigned partition in the range [1, num_partitions],
   and in a way 'chunks' the key range such that it is split between partitions. 
@@ -91,22 +105,40 @@ defmodule PartitionScheme do
   def generate_participating_partitions(tx_batch, partition_scheme) do
     Enum.map(tx_batch,
       fn tx ->
-        # combine the read and write sets for the Transaction to get all
-        # of the values that the Transactions accesses and convert to list form
-        read_write_set = MapSet.to_list(MapSet.union(tx.read_set, tx.write_set))
-
-        # get all of the partitions that the read-write set for the current Transaction
-        # will need to access and thus which need to participate
-        partitions = Enum.reduce(read_write_set, MapSet.new(), 
+        # get the set of active participating partitions, which is the set
+        # of partitions on which the values in the current Transaction are being
+        # either created, updated, or deleted
+        active_participants = Enum.reduce(tx.write_set, MapSet.new(),
           fn value, acc ->
-            # get the partition for the value in the read-write set
+            # get the partition that this value being written to is on
             partition = Map.get(partition_scheme.partition_key_map, to_partition_key(_value=value))
             # add to the set of partitions
             MapSet.put(acc, partition)
           end
         )
+
+        # get the set of passive participating partitions, which is the set
+        # of partitions on which only READ operations are performed
+        passive_participants = Enum.reduce(tx.read_set, MapSet.new(),
+          fn value, acc ->
+            # get the partition that this value being read is on
+            partition = Map.get(partition_scheme.partition_key_map, to_partition_key(_value=value))
+            # add to the set of partitions
+            MapSet.put(acc, partition)
+          end
+        )
+
+        # combine the read and write sets for the Transaction to get all
+        # of the values that the Transactions accesses and convert to list form
+        all_participants = MapSet.union(passive_participants, active_participants)
+
         # update the participating partitions for the Transaction
-        Transaction.set_participating_partitions(_transaction=tx, _partitions=partitions)
+        Transaction.set_participating_partitions(
+          _transaction=tx,
+          _active=active_participants, 
+          _passive=passive_participants,
+          _all=all_participants
+        )
       end)
   end
 

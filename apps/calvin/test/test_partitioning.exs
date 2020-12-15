@@ -20,7 +20,7 @@ defmodule PartitioningTest do
     assert partitions == [1, 2, 3]
   end
 
-  test "PartitionScheme get_all_other_partitions() works as expected" do
+  test "PartitionScheme get_all_other_partitions/2 works as expected" do
     # create a configuration
     configuration = Configuration.new(
       _replication=ReplicationScheme.Async.new(_num_replicas=1), 
@@ -43,7 +43,7 @@ defmodule PartitioningTest do
     assert other_partitions == [1, 3]
   end
 
-  test "PartitionScheme generate_key_partition_map() works as expected" do
+  test "PartitionScheme generate_partition_key_map/1 works as expected" do
     # create a configuration
     configuration = Configuration.new(
       _replication=ReplicationScheme.Async.new(_num_replicas=1), 
@@ -73,7 +73,7 @@ defmodule PartitioningTest do
     assert Map.get(partition_map, :z) == 4
   end
 
-  test "PartitionScheme generate_participating_partitions() works as expected" do
+  test "PartitionScheme generate_participating_partitions/2 works as expected" do
     # create a configuration
     configuration = Configuration.new(
       _replication=ReplicationScheme.Async.new(_num_replicas=1), 
@@ -83,8 +83,8 @@ defmodule PartitioningTest do
 
     # create a couple of Transactions
     tx1 = Transaction.new(_operations=[
-      Transaction.Op.create(:a, 1),
-      Transaction.Op.create(:z, 1),
+      Transaction.Op.read(:z),
+      Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, 1))
     ])
     tx2 = Transaction.new(_operations=[Transaction.Op.create(:a, 1)])
     tx3 = Transaction.new(_operations=[Transaction.Op.create(:n, 1)])
@@ -94,26 +94,49 @@ defmodule PartitioningTest do
       _tx_batch=tx_batch, partition_scheme
     )
 
-    tx1_participating_partitions = Enum.at(tx_batch, 0).participating_partitions
-    tx2_participating_partitions = Enum.at(tx_batch, 1).participating_partitions
-    tx3_participating_partitions = Enum.at(tx_batch, 2).participating_partitions
+    tx1 = Enum.at(tx_batch, 0)
+    tx2 = Enum.at(tx_batch, 1)
+    tx3 = Enum.at(tx_batch, 2)
+
+    # check active participating partitions
+    tx1_active = tx1.active_participants
+    tx2_active = tx2.active_participants
+    tx3_active = tx3.active_participants
+
+    assert MapSet.to_list(tx1_active) == [1]
+    assert MapSet.to_list(tx2_active) == [1]
+    assert MapSet.to_list(tx3_active) == [2]
+
+    # check passive participating partitions
+    tx1_passive = tx1.passive_participants
+    tx2_passive = tx2.passive_participants
+    tx3_passive = tx3.passive_participants
+
+    assert MapSet.to_list(tx1_passive) == [3]
+    assert MapSet.to_list(tx2_passive) == []
+    assert MapSet.to_list(tx3_passive) == []
+
+    # check all participating partitions
+    tx1_all_partitions = tx1.participating_partitions
+    tx2_all_partitions = tx2.participating_partitions
+    tx3_all_partitions = tx3.participating_partitions
 
     # tx1 has participating partitions 1, 3, since `a` is in key range for
     # partition 1 and `z` is in key range for partition 3
-    assert MapSet.size(tx1_participating_partitions) == 2
-    assert MapSet.member?(tx1_participating_partitions, 1) == true
-    assert MapSet.member?(tx1_participating_partitions, 3) == true
+    assert MapSet.size(tx1_all_partitions) == 2
+    assert MapSet.member?(tx1_all_partitions, 1) == true
+    assert MapSet.member?(tx1_all_partitions, 3) == true
 
     # tx2 only access `a`, thus only participating partition is partition 1
-    assert MapSet.size(tx2_participating_partitions) == 1
-    assert MapSet.member?(tx2_participating_partitions, 1) == true
+    assert MapSet.size(tx2_all_partitions) == 1
+    assert MapSet.member?(tx2_all_partitions, 1) == true
 
     # tx3 only access `n`, thus only participating partition is partition 2
-    assert MapSet.size(tx3_participating_partitions) == 1
-    assert MapSet.member?(tx3_participating_partitions, 2) == true
+    assert MapSet.size(tx3_all_partitions) == 1
+    assert MapSet.member?(tx3_all_partitions, 2) == true
   end
 
-  test "PartitionScheme partition_transactions() works as expected" do
+  test "PartitionScheme partition_transactions/1 works as expected" do
     # create a configuration
     configuration = Configuration.new(
       _replication=ReplicationScheme.Async.new(_num_replicas=1), 
@@ -148,5 +171,19 @@ defmodule PartitioningTest do
     assert Enum.at(partition_1_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :a
     assert Enum.at(partition_2_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :m
     assert Enum.at(partition_3_batch, 0).operations |> Enum.at(0) |> Map.get(:key) == :z
+  end
+
+  test "PartitionScheme is_local?/3 works as expected" do
+    # create a configuration
+    configuration = Configuration.new(
+      _replication=ReplicationScheme.Async.new(_num_replicas=1), 
+      _partition=PartitionScheme.new(_num_partitions=3)
+    )
+    partition_scheme = configuration.partition_scheme
+
+    assert PartitionScheme.is_local?(:a, _partition=1, _partition_scheme=partition_scheme) == true
+    assert PartitionScheme.is_local?(:Alice, _partition=1, _partition_scheme=partition_scheme) == true
+
+    assert PartitionScheme.is_local?(:z, _partition=1, _partition_scheme=partition_scheme) == false
   end
 end

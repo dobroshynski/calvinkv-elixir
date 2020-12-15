@@ -51,3 +51,24 @@ defmodule BatchTransactionMessage do
     }
   end
 end
+
+# Message that Scheduler components send to other actively participating Schedulers
+# when executing a Transaction to serve the local reads, which is a map of {key -> value}
+
+defmodule LocalReadsTransactionMessage do
+  @enforce_keys [:local_reads]
+
+  defstruct(
+    local_reads: nil
+  )
+
+  @doc """
+  Creates a new LocalReadsTransactionMessage
+  """
+  @spec new(%{}) :: %LocalReadsTransactionMessage{}
+  def new(local_reads) do
+    %LocalReadsTransactionMessage{
+      local_reads: local_reads
+    }
+  end
+end

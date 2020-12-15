@@ -1,3 +1,58 @@
+# Module for a Transaction Expression that can be part of a `write-type` 
+# transaction and which gets evaluated at Transaction execution by a Scheduler
+# when local and remote reads are collected
+
+defmodule Transaction.Expression do
+  @enforce_keys [:operand1, :operator, :operand2]
+
+  defstruct(
+    operand1: nil,
+    operator: nil,
+    operand2: nil
+  )
+
+  @doc """
+  Given an expression, evaluates it and returns the result. So far only
+  supports basic arithmetic operations
+  """
+  @spec eval(%Transaction.Expression{}, %{}) :: any()
+  def eval(expr, all_collected_reads) do
+    # bind the value to each operand variables, if necessary
+    operand1 =
+      if is_atom(expr.operand1), 
+        do: Map.get(all_collected_reads, expr.operand1), 
+        else: expr.operand1
+
+    operand2 =
+      if is_atom(expr.operand2), 
+        do: Map.get(all_collected_reads, expr.operand2), 
+        else: expr.operand2 
+
+    case expr.operator do
+      :+ ->
+        operand1 + operand2
+      :- ->
+        operand1 - operand2
+      :* ->
+        operand1 * operand2
+      :/ ->
+        operand1 / operand2
+    end
+  end
+
+  @doc """
+  Creates a new Transaction.Expression
+  """
+  @spec new(any(), atom(), any()) :: %Transaction.Expression{}
+  def new(operand1, operator, operand2) do
+    %Transaction.Expression{
+      operand1: operand1,
+      operator: operator,
+      operand2: operand2
+    }
+  end
+end
+
 # Simple CRUD Transaction Operation module. This represents a simple 
 # operation that can performed against a Storage component that is a
 # key-value store
@@ -8,8 +63,27 @@ defmodule Transaction.Op do
   defstruct(
     type: nil,
     key: nil,
-    val: nil
+    expr: nil
   )
+
+  @doc """
+  Evaluates, if needed, the Expression associated with the given `write`
+  operation using a combined map of collected local and remote reads and 
+  returns the updated operation
+  """
+  @spec evaluate_expr(%Transaction.Op{}, %{}) :: %Transaction.Op{}
+  def evaluate_expr(op, all_collected_reads) do
+    # evaluate the Expression and update the operation
+    # and if the expression is a primitive value, simply 
+    # return the operation unchanged
+    case op.expr do
+      %Transaction.Expression{} -> 
+        val = Transaction.Expression.eval(op.expr, all_collected_reads)
+        %{op | expr: val}
+      _ ->
+        op
+    end
+  end
 
   @doc """
   Returns a condensed representation of an Operation, which is a tuple of
@@ -23,10 +97,10 @@ defmodule Transaction.Op do
         {type, op.key}
       
       type = :CREATE ->
-        {type, op.key, op.val}
+        {type, op.key, op.expr}
       
       type = :UPDATE ->
-        {type, op.key, op.val}
+        {type, op.key, op.expr}
 
       type = :DELETE ->
         {type, op.key}
@@ -55,14 +129,27 @@ defmodule Transaction.Op do
   end
 
   @doc """
+  Given a `Transaction.Op` returns whether it is a `write` operation
+  """
+  @spec is_write?(%Transaction.Op{}) :: boolean()
+  def is_write?(op) do
+    case op.type do
+      :READ -> 
+        false
+      _ ->
+        true
+    end
+  end
+
+  @doc """
   CREATE Operation
   """
-  @spec create(any(), any()) :: %Transaction.Op{}
-  def create(key, val) do
+  @spec create(any(), %Transaction.Expression{} | any()) :: %Transaction.Op{}
+  def create(key, expr) do
     %Transaction.Op{
       type: :CREATE,
       key: key,
-      val: val
+      expr: expr
     }
   end
 
@@ -80,12 +167,12 @@ defmodule Transaction.Op do
   @doc """
   UPDATE Operation
   """
-  @spec update(any(), any()) :: %Transaction.Op{}
-  def update(key, val) do
+  @spec update(any(), %Transaction.Expression{} | any()) :: %Transaction.Op{}
+  def update(key, expr) do
     %Transaction.Op{
       type: :UPDATE,
       key: key,
-      val: val
+      expr: expr
     }
   end
 
@@ -119,7 +206,10 @@ defmodule Transaction do
     write_set: nil,
 
     # participating partitions for this Transaction
+    # as well as which are active and passive participants
     participating_partitions: nil,
+    active_participants: nil,
+    passive_participants: nil,
 
     # for timing of Transaction start / execution from
     # client to Storage
@@ -170,9 +260,13 @@ defmodule Transaction do
   @doc """
   Sets the participating partitions for this Transaction to the given set of partitions
   """
-  @spec set_participating_partitions(%Transaction{}, %MapSet{}) :: %Transaction{}
-  def set_participating_partitions(tx, partitions) do
-    %{tx | participating_partitions: partitions}
+  @spec set_participating_partitions(%Transaction{}, %MapSet{}, %MapSet{}, %MapSet{}) :: %Transaction{}
+  def set_participating_partitions(tx, active, passive, all) do
+    %{tx | 
+      active_participants: active,
+      passive_participants: passive,
+      participating_partitions: all
+    }
   end
 
 

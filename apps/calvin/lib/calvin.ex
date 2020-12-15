@@ -6,6 +6,29 @@ defmodule Calvin do
   import Kernel,
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
+  @doc """
+  Given a Calvin configuration and a storage state, sets the key-value
+  store states for all Storage components in the system to the given
+  storage state map
+
+  TODO: partition the given `storage_state` such that every Storage
+  component only contains parts of the key-value store state that it
+  is is responsible for based on the partition scheme
+  """
+  @spec set_storage(%Configuration{}, %{}) :: no_return()
+  def set_storage(configuration, storage_state) do
+    Enum.map(Configuration.get_replica_view(configuration), 
+      fn replica ->
+        storage_view = Configuration.get_storage_view(configuration, replica)
+        Enum.map(storage_view, 
+          fn storage_id ->
+            send(storage_id, {:set_kv_store, storage_state})
+          end
+        )
+      end
+    )
+  end
+
   # Helper function to launch `num_partitions` Sequencer components
   # for a given replica with a given Configuration and partition view
   defp launch_partitioned_sequencer(replica, configuration) do
@@ -115,7 +138,7 @@ defmodule Storage do
   Depending on the operation, returns either just an :ok, :notok, or the value in case of READ request, 
   in addition to the updated state for the Storage RSM
   """
-  @spec exec_storage_command(%Storage{}, atom(), any(), any()) :: {any() | :ok | :notok, %Storage{}}
+  @spec exec_storage_command(%Storage{}, atom(), any(), any()) :: {any(), any() | :ok | :notok, %Storage{}}
   def exec_storage_command(state, command, key, val \\ nil) do
     case command do
       :READ ->
@@ -124,7 +147,7 @@ defmodule Storage do
         # updated in this case
 
         read_value = Map.get(state.store, key)
-        {read_value, state}
+        {key, read_value, state}
 
       :CREATE ->
         # if the command is CREATE, if the key is new, then update
@@ -137,7 +160,7 @@ defmodule Storage do
         else
           updated_store = Map.put(state.store, key, val)
           updated_state = %{state | store: updated_store}
-          {:ok, updated_state}
+          {key, :ok, updated_state}
         end
 
       :UPDATE ->
@@ -148,10 +171,10 @@ defmodule Storage do
         if Map.has_key?(state.store, key) do
           updated_store = Map.put(state.store, key, val)
           updated_state = %{state | store: updated_store}
-          {:ok, updated_state}
+          {key, :ok, updated_state}
         else
           # indicate an error
-          {:notok, state}
+          {key, :notok, state}
         end
         
       :DELETE ->
@@ -160,7 +183,7 @@ defmodule Storage do
 
         updated_store = Map.delete(state.store, key)
         updated_state = %{state | store: updated_store}
-        {:ok, updated_state}
+        {key, :ok, updated_state}
 
     end
   end
@@ -175,28 +198,31 @@ defmodule Storage do
 
     receive do
       # raw CRUD messages for the key-value store
-      {_scheduler_sender, {:READ, key}} ->
+      {scheduler_sender, {:READ, key}} ->
         Debug.log("received a READ request for key {#{key}}")
 
-        {_ret, state} = exec_storage_command(state, :READ, key)
+        {ret_key, ret_val, state} = exec_storage_command(state, :READ, key)
+
+        # send back the response to the Scheduler that requested the READ 
+        send(scheduler_sender, {ret_key, ret_val})
 
         receive_commands(state)
       {_scheduler_sender, {:CREATE, key, val}} ->
         Debug.log("received a CREATE request setting key {#{key}} to value {#{val}}")
 
-        {_ret, state} = exec_storage_command(state, :CREATE, key, val)
+        {_ret_key, _ret_val, state}= exec_storage_command(state, :CREATE, key, val)
 
         receive_commands(state)
       {_scheduler_sender, {:UPDATE, key, val}} -> 
         Debug.log("received a UPDATE request updating key {#{key}} to value {#{val}}")
         
-        {_ret, state} = exec_storage_command(state, :UPDATE, key, val)
+        {_ret_key, _ret_val, state} = exec_storage_command(state, :UPDATE, key, val)
 
         receive_commands(state)
       {_scheduler_sender, {:DELETE, key}} ->
         Debug.log("received a DELETE request deleting value associated with key {#{key}}")
 
-        {_ret, state} = exec_storage_command(state, :DELETE, key)
+        {_ret_key, _ret_val, state} = exec_storage_command(state, :DELETE, key)
         
         receive_commands(state)
 
@@ -206,6 +232,11 @@ defmodule Storage do
 
       {debug_sender, :get_kv_store} ->
         send(debug_sender, state.store)
+        receive_commands(state)
+
+      {_debug_sender, {:set_kv_store, store_state}} ->
+        # update the Storage store state to the provided key value store
+        state = %{state | store: store_state}
         receive_commands(state)
       end
   end
@@ -242,7 +273,7 @@ defmodule Sequencer do
     # deployment Configuration
     configuration: nil,
 
-    epoch_timer_duration: 10, # default epoch duration is 10ms
+    epoch_timer_duration: 2000, # default epoch duration is 10ms
     epoch_timer: nil,
 
     current_epoch: nil,
@@ -292,10 +323,10 @@ defmodule Sequencer do
   contains only the batch of Transactions that the recipient Scheduler needs to participate in, 
   which is decided by the PartitionScheme as part of the current Configuration
   """
-  @spec broadcast_batch(%Sequencer{}, non_neg_integer(), [%Transaction{}]) :: no_return()
+  @spec broadcast_batch(%Sequencer{}, non_neg_integer(), [%Transaction{}]) :: %Sequencer{}
   def broadcast_batch(state, epoch, batch) do
-    # determine the participating partitions for each Transaction based on every
-    # Transaction's read and write sets
+    # prepare for broadcast by generating the active/passive participating
+    # partitions for all Transactions in the given batch
     batch = PartitionScheme.generate_participating_partitions(
       _tx_batch=batch,
       _partition_scheme=state.configuration.partition_scheme
@@ -336,7 +367,10 @@ defmodule Sequencer do
 
         Debug.log("sent BatchTransactionMessage #{inspect(batch_tx_msg)} to scheduler process #{scheduler_id}")
       end
-    )    
+    )
+
+    # return the updated state
+    %{state | epoch_logs: Map.put(state.epoch_logs, epoch, batch)}
   end
 
   @doc """
@@ -514,7 +548,7 @@ defmodule Sequencer do
         # now that the log for the epoch is synced up with the Sequencer on the main replica
         # within this Sequencer's replica group, send out a BatchTransactionMessage to all of
         # the Schedulers within the same replica as the current Sequencer
-        broadcast_batch(state, 
+        state = broadcast_batch(state, 
           _for_epoch=state.current_epoch,
           # all of the Transactions for the current epoch acquired by this Sequencer
           _batch=Map.get(state.epoch_logs, state.current_epoch)
@@ -548,7 +582,7 @@ defmodule Sequencer do
             # since using async replication, now can broadcast the relevant batches (those
             # Transactions in which the partition will need to participate in) for each
             # Scheduler within the same replica as the current Sequencer
-            broadcast_batch(state, 
+            state = broadcast_batch(state, 
               _for_epoch=state.current_epoch,
               # all of the Transactions for the current epoch acquired by this Sequencer
               _batch=Map.get(state.epoch_logs, state.current_epoch)
@@ -615,7 +649,7 @@ defmodule Sequencer do
               # apply the entry at the Raft log to be applied at by sending the batch of Transactions
               # for that log entry to the Schedulers on the same replica as the current Sequencer 
               # process that is in Raft `follower` state
-              broadcast_batch(state, 
+              state = broadcast_batch(state, 
                 _for_epoch=log_entry_to_apply.index, 
                 _batch=log_entry_to_apply.batch
               )
@@ -656,7 +690,7 @@ defmodule Sequencer do
               # since the Transaction batch at the index in the Raft log that is equivalent
               # to the epoch has been marked as safe to commit, perform the commit by
               # sending the batch in broadcast manner to all Schedulers on this replica
-              broadcast_batch(state, 
+              state = broadcast_batch(state, 
                 _for_epoch=log_entry_to_commit.index, 
                 _batch=log_entry_to_commit.batch
               )
@@ -839,7 +873,7 @@ end
 # manner in the order that it determines the transactions to be in for a given epoch
 
 defmodule Scheduler do
-  import Emulation, only: [send: 2, mark_unfuzzable: 0]
+  import Emulation, only: [whoami: 0, send: 2, mark_unfuzzable: 0]
   import Kernel, except: [send: 2]
 
   defstruct(
@@ -958,6 +992,227 @@ defmodule Scheduler do
   end
 
   @doc """
+  Recursively collects local reads one by one until all expected local reads are collected
+  from the local Storage component
+  """
+  @spec perform_local_reads(%{}, atom(), integer(), integer()) :: %{}
+  def perform_local_reads(read_results, storage_id, collected, expected) do
+    # collect the read request results from the Storage component
+    receive do
+      {^storage_id, msg = {read_key, read_val}} -> 
+        IO.puts("received response: #{inspect(msg)} from #{storage_id}")
+
+        collected = collected + 1
+        read_results = Map.put(read_results, read_key, read_val)
+
+        if collected == expected do
+          # return since collected all of the responses
+          read_results
+        else
+          # keep waiting for more responses 
+          perform_local_reads(
+            read_results,
+            storage_id,
+            collected,
+            expected
+          )
+        end
+    end
+  end
+
+  @doc """
+  Performs local reads by looking up the values of all records in the read set
+  that are stored locally on the current Sequencer's partition and returns a map
+  of {key -> value} of collected local reads
+  """
+  @spec perform_local_reads(%Sequencer{}, %{}, atom()) :: %{}
+  def perform_local_reads(state, read_set, storage_id) do
+    IO.puts("performing local reads...")
+
+    # computes how many local reads are expected by iterating values in the Transactions
+    # read set and counting how many of the values are stored locally on the current partition
+    expected = Enum.reduce(read_set, 0, 
+      fn val, acc ->
+        if PartitionScheme.is_local?(val, state.partition, state.configuration.partition_scheme) do
+          # send a request for a read to the Storage component
+          read_request = {:READ, val}
+          IO.puts("sending a read request #{inspect(read_request)} to #{storage_id}")
+
+          send(storage_id, read_request)
+
+          acc + 1
+        else
+          acc
+        end
+      end
+    )
+
+    IO.puts("expecting read results: #{expected}")
+    read_results = %{}
+
+    if expected == 0 do
+      IO.puts("not expecting any reads, returning empty local read set")
+      read_results
+    else
+      IO.puts("waiting for responses from Storage")
+      # recursively collect all of the expected local reads from the local Storage component
+      read_results = perform_local_reads(read_results, storage_id, _collected=0, _expected=expected)
+
+      IO.puts("returning read_results: #{inspect(read_results)}")
+      read_results
+    end
+  end
+
+  @doc """
+  Serves remote reads collected from previous step 2 by forwarding the read results to all
+  actively participating Schedulers. Since passively participating Schedulers do not need
+  to perform any modifications to the data, they do not need to collect any of the local reads
+  results from other Schedulers, therefore those Schedulers are finished with transaction 
+  execution after this phase
+  """
+  @spec serve_local_reads(%Sequencer{}, [non_neg_integer()], %{}) :: no_return()
+  def serve_local_reads(state, active_participants, local_reads) do
+    # filter out the current Scheduler's partition if needed
+    active_participants = active_participants |> Enum.filter(fn partition -> partition != state.partition end)
+
+    Enum.map(active_participants, 
+      fn partition ->
+        # construct a unique id for a recipient Scheduler component within the current replica
+        # given a partition
+        scheduler_id = Component.id(_replica=state.replica, _partition=partition, _type=:scheduler)
+        
+        # construct a LocalReadsTransactionMessage to send the local reads from the
+        # current Scheduler to the other actively participating Scheduler
+        local_reads_msg = %LocalReadsTransactionMessage{
+          local_reads: local_reads
+        }
+
+        # send a LocalReadsTransactionMessage to this specific Scheduler component
+        send(scheduler_id, local_reads_msg)
+      end
+    )
+  end
+
+  @doc """
+  Given a partition and a set of actively participating partitions, returns whether the 
+  given partition is part of those partitions that are actively participating in the 
+  transaction execution
+  """
+  @spec is_actively_participating?(non_neg_integer(), [non_neg_integer()]) :: boolean()
+  def is_actively_participating?(partition, active_participants) do
+    if MapSet.member?(active_participants, partition) do
+      true
+    else
+      false
+    end
+  end
+
+  @doc """
+  Recursively collects all remote reads one by one until all expected remote reads are collected
+  from all other participating Schedulers
+  """
+  @spec collect_remote_reads(%{}, integer(), integer()) :: %{}
+  def collect_remote_reads(remote_reads, collected, expected) do
+    # collect the remote reads by waiting for LocalReadsTransactionMessages
+    receive do
+      {scheduler, %LocalReadsTransactionMessage{
+        local_reads: local_reads
+      }} -> 
+        IO.puts("received a LocalReadsTransactionMessage #{inspect(local_reads)} from #{scheduler}")
+
+        collected = collected + map_size(local_reads)
+        remote_reads = Map.merge(remote_reads, local_reads)
+
+        if collected == expected do
+          # return since collected all of the LocalReadsTransactionMessages
+          remote_reads
+        else
+          # keep waiting for more messages
+          collect_remote_reads(
+            remote_reads,
+            collected,
+            expected
+          )
+        end
+    end
+  end
+
+  @doc """
+  Collects remote reads by waiting for LocalReadsTransactionMessages from all other participating
+  Schedulers to serve their corresponding local reads in step 3. Returns a map of {key -> value}
+  of collected remote reads
+  """
+  @spec collect_remote_reads(%Sequencer{}, %{}) :: %{}
+  def collect_remote_reads(state, read_set) do
+    IO.puts("collecting remote reads...")
+    
+    # computes how many remote reads to expect by counting elements of the read set that
+    # are not stored locally on the current partition
+    expected = Enum.reduce(read_set, 0, 
+      fn val, acc ->
+        if PartitionScheme.is_local?(val, state.partition, state.configuration.partition_scheme) == false do
+          acc + 1
+        else
+          acc
+        end
+      end
+    )
+
+    IO.puts("expecting remote reads: #{expected}")
+    remote_reads = %{}
+
+    if expected == 0 do
+      IO.puts("not expecting any remote reads, returning")
+      remote_reads
+    else
+      IO.puts("waiting for LocalReadsTransactionMessages")
+      # recursively collect all of the remote reads via LocalReadsTransactionMessage
+      remote_reads = collect_remote_reads(remote_reads, _collected=0, _expected=expected)
+
+      IO.puts("returning remote_reads: #{inspect(remote_reads)}")
+      remote_reads
+    end
+  end
+
+  @doc """
+  Finalizes the execution of a given Transaction against a Storage component after acquiring
+  sets of both the local and remote required reads and applies all **local** write operations
+  of the given Transaction, since non-local writes will be executed by other Schedulers
+  on the appropriate partition at this stage of transaction execution 
+  """
+  @spec apply_local_writes(%Sequencer{}, %Transaction{}, %{}, %{}, atom()) :: no_return()
+  def apply_local_writes(state, tx, local_reads, remote_reads, storage_id) do
+    # go through the operations and apply any local writes
+    Enum.map(tx.operations, 
+      fn op ->
+        # execute only local writes, as non-local writes will be seen as local by other
+        # partitions and executed by Schedulers there
+        if Transaction.Op.is_write?(op) && PartitionScheme.is_local?(op.key, state.partition, state.configuration.partition_scheme) do
+          # evaluate the operation's expression if necessary using the local and remote 
+          # reads collected 
+          all_collected_reads = Map.merge(local_reads, remote_reads)
+          IO.puts("all collected reads: #{inspect(all_collected_reads)}")
+
+          op = Transaction.Op.evaluate_expr(op, all_collected_reads)
+
+          IO.puts("evaluated operation #{inspect(op)}")
+
+          # get the condensed version of the opeeration
+          message = Transaction.Op.condensed(op)
+
+          IO.puts("condensed version: #{inspect(message)}")
+          
+          # TODO: this message send / execution RPC has to be executed without delays to mimic a
+          # transaction execution thread that executes all transactions from the global ordering
+          # in sequential order
+          send(storage_id, message)
+          Debug.log("sent tx Operation message #{inspect(message)} to be executed by Storage component #{storage_id}")
+        end
+      end
+    )
+  end
+
+  @doc """
   Executes a single Transaction against a Storage component with unique id `storage_id`
   """
   @spec tx_execute(%Scheduler{}, %Transaction{}, atom()) :: no_return()
@@ -967,21 +1222,38 @@ defmodule Scheduler do
     time = DateTime.utc_now()
     tx = Transaction.set_finished(tx, _time=time, _node=Component.physical_node_id(state))
 
-    # execute all of the operations of the given Transaction in linear order
-    Enum.map(tx.operations, 
-      fn op ->
-        # execute only local writes, as non-local writes will be seen as local by other
-        # partitions and executed by Schedulers there
-        if Transaction.Op.is_local_to_partition?(op, state.partition, state.configuration.partition_scheme) do
-          message = Transaction.Op.condensed(op)
-          # TODO: this message send / execution RPC has to be executed without delays to mimic a
-          # transaction execution thread that executes all transactions from the global ordering
-          # in sequential order
-          send(storage_id, message)
-          Debug.log("sent tx Operation message #{inspect(message)} to be executed by Storage component #{storage_id}")
-        end
-      end
+    # step 1 - read/write set analysis, with read/write sets and participating partitions
+    # already generated by the Sequencers when broadasting the batch
+    read_set = tx.read_set
+    active_participants = tx.active_participants
+
+    # step 2 - perform local reads
+    local_read_set = perform_local_reads(state, read_set, storage_id)
+    IO.puts("local read set collected: #{inspect(local_read_set)}")
+
+    # step 3 - serve remote reads
+    serve_local_reads(state, 
+      _active_participants=active_participants,
+      _local_reads=local_read_set
     )
+
+    # if the current Scheduler is only a passive participant, then it is done after
+    # this step
+    if is_actively_participating?(state.partition, active_participants) == false do
+      IO.puts("[#{whoami()}] is a passive participant, done now")
+    else
+      IO.puts("[#{whoami()}] is an active participant now will wait for remote reads if needed")
+
+      # step 4 - collect remote read results
+      remote_reads = collect_remote_reads(state, read_set)
+      
+      IO.puts("now can finish transaction, 
+      local reads: #{inspect(local_read_set)}
+      remote reads: #{inspect(remote_reads)}")
+
+      # step 5 - Transaction logic execution and applying writes
+      apply_local_writes(state, tx, local_read_set, remote_reads, storage_id)
+    end
   end
 
   @doc """
