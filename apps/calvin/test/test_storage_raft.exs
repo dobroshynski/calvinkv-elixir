@@ -5,27 +5,9 @@ defmodule StorageTest.Raft do
   doctest PartitionScheme
   doctest ReplicationScheme.Raft
 
-  import Emulation, only: [spawn: 2, send: 2]
+  import Emulation, only: [spawn: 2]
   import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
-
-  # Helper function to collect the key-value store states of Storage components given 
-  # a list of Storage unique ids
-  defp get_kv_stores(storage_ids) do
-    Enum.map(storage_ids,
-      fn id ->
-        # send testing / debug message to the Storage component directly
-        send(id, :get_kv_store)
-      end
-    )
-    Enum.map(storage_ids,
-      fn id ->
-        receive do
-          {^id, kv_store} -> kv_store
-        end
-      end
-    )
-  end
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3]
   
   test "Raft replication works as expected" do
     Emulation.init()
@@ -62,7 +44,7 @@ defmodule StorageTest.Raft do
         # all replicas and check that they contain the expected data,
         # with partition 1 range [a-m] and partition 2 range [n-z]
 
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
         )
 
@@ -75,7 +57,7 @@ defmodule StorageTest.Raft do
         assert Map.get(kv_store_part_2, :z) == 1
 
         # perform the same check on replica B
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :B)
         )
 
@@ -88,7 +70,7 @@ defmodule StorageTest.Raft do
         assert Map.get(kv_store_part_2, :z) == 1
 
         # perform the same check on replica C
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :C)
         )
 
@@ -159,7 +141,7 @@ defmodule StorageTest.Raft do
         # get the key-value stores from every Storage component on
         # replica A and check that they contain the expected data
 
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
         )
         
@@ -172,7 +154,7 @@ defmodule StorageTest.Raft do
         assert kv_store_part_3 == %{w: 1, z: 1}
 
         # perform the same checks on replica G
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :G)
         )
         
@@ -244,7 +226,7 @@ defmodule StorageTest.Raft do
         # get the key-value stores from every Storage component on
         # replica A and check that they contain the expected data
 
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
         )
         
@@ -257,7 +239,7 @@ defmodule StorageTest.Raft do
         assert kv_store_part_3 == %{w: 1, z: 1}
 
         # perform the same checks on replica B
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :B)
         )
 
@@ -270,7 +252,7 @@ defmodule StorageTest.Raft do
         assert kv_store_part_3 == %{w: 1, z: 1}
 
         # perform the same checks on replica C
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :C)
         )
 

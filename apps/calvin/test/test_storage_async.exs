@@ -1,29 +1,13 @@
 defmodule StorageTest.Async do
   use ExUnit.Case
-  doctest Storage
 
-  import Emulation, only: [spawn: 2, send: 2]
+  doctest Calvin
+  doctest PartitionScheme
+  doctest ReplicationScheme.Async
 
+  import Emulation, only: [spawn: 2]
   import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
-
-  # Helper function to collect the key-value store states of Storage components given 
-  # a list of Storage unique ids
-  defp get_kv_stores(storage_ids) do
-    Enum.map(storage_ids,
-      fn id ->
-        # send testing / debug message to the Storage component directly
-        send(id, :get_kv_store)
-      end
-    )
-    Enum.map(storage_ids,
-      fn id ->
-        receive do
-          {^id, kv_store} -> kv_store
-        end
-      end
-    )
-  end
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3]
   
   test "Commands are executed against Storage components by all partitions" do
     Emulation.init()
@@ -61,7 +45,7 @@ defmodule StorageTest.Async do
           :timer.sleep(3000)
 
           # get the key-value stores from every Storage component
-          kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
+          kv_stores = Testing.get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
           # check that every Storage node has the expected key-value store
           # based on the current PartitionScheme with 3 partitions
@@ -132,7 +116,7 @@ defmodule StorageTest.Async do
         :timer.sleep(3000)
 
         # get the key-value stores from every Storage component
-        kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
+        kv_stores = Testing.get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
         # check that every Storage node has the expected key-value store
         # based on the current PartitionScheme with 3 partitions
@@ -171,7 +155,7 @@ defmodule StorageTest.Async do
         :timer.sleep(3000)
 
         # get the key-value stores from every Storage component
-        kv_stores = get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
+        kv_stores = Testing.get_kv_stores(_ids=Configuration.get_storage_view(configuration, replica))
 
         # check that every Storage node has the expected key-value store
         # based on the current PartitionScheme with 3 partitions
@@ -232,7 +216,7 @@ defmodule StorageTest.Async do
 
         # get the key-value stores from every Storage component on the main replica, since
         # the Transaction requests should have been forwarded to that replica
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, configuration.replication_scheme.main_replica)
         )
 
@@ -298,7 +282,7 @@ defmodule StorageTest.Async do
         # get the key-value stores from every Storage component on the secondary B replica
         # to check if Transactions sent to A were replicated to B and executed against the
         # Storage components
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :B)
         )
 
@@ -319,7 +303,7 @@ defmodule StorageTest.Async do
         assert Map.get(kv_store, :b) == nil
 
         # perform the same check on the C replica
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :C)
         )
 
@@ -380,7 +364,7 @@ defmodule StorageTest.Async do
         :timer.sleep(3000)
 
         # get the key-value stores from the A replica
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
         )
 
@@ -402,7 +386,7 @@ defmodule StorageTest.Async do
         assert Map.get(kv_store, :a) == nil
         
         # get the key-value stores from the B replica
-        kv_stores = get_kv_stores(
+        kv_stores = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :B)
         )
 

@@ -2,29 +2,9 @@ defmodule SequencerTest do
   use ExUnit.Case
   doctest Sequencer
 
-  import Emulation, only: [spawn: 2, send: 2]
-
+  import Emulation, only: [spawn: 2]
   import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
-
-
-  # Helper function to collect the states of Sequencer components given 
-  # a list of Sequencer unique ids
-  defp get_sequencer_states(sequencer_ids) do
-    Enum.map(sequencer_ids,
-      fn id ->
-        # send testing / debug message to the Sequencer component directly
-        send(id, :get_state)
-      end
-    )
-    Enum.map(sequencer_ids,
-      fn id ->
-        receive do
-          {^id, state} -> state
-        end
-      end
-    )
-  end
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3]
 
   test "Requests to the Sequencer component are logged" do
     Emulation.init()
@@ -58,7 +38,7 @@ defmodule SequencerTest do
           Client.send_create_tx(client, :c, 3)
 
           # check that the Transaction logs at each Sequencer are as expected
-          Enum.map(get_sequencer_states([sequencer_proc_id]), 
+          Testing.get_sequencer_states([sequencer_proc_id]) |> Enum.map( 
             fn state -> 
               log = Map.get(state.epoch_logs, state.current_epoch)
               assert length(log) == 3
@@ -116,7 +96,7 @@ defmodule SequencerTest do
           :timer.sleep(5000)
 
           # check that the epoch at each Sequencer is as expected
-          Enum.map(get_sequencer_states([sequencer_proc_id]), 
+          Testing.get_sequencer_states([sequencer_proc_id]) |> Enum.map( 
             fn state ->
               assert state.current_epoch == 3 
             end

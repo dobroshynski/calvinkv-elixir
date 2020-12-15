@@ -3,29 +3,10 @@ defmodule TransactionsTest.Multipartition do
 
   doctest Calvin
   doctest PartitionScheme
-  doctest ReplicationScheme.Raft
+  doctest ReplicationScheme.Async
 
-  import Emulation, only: [spawn: 2, send: 2]
-  import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
-
-  # Helper function to collect the key-value store states of Storage components given 
-  # a list of Storage unique ids
-  defp get_kv_stores(storage_ids) do
-    Enum.map(storage_ids,
-      fn id ->
-        # send testing / debug message to the Storage component directly
-        send(id, :get_kv_store)
-      end
-    )
-    Enum.map(storage_ids,
-      fn id ->
-        receive do
-          {^id, kv_store} -> kv_store
-        end
-      end
-    )
-  end
+  import Emulation, only: [spawn: 2]
+  import Kernel, except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3]
 
   test "Multipartition transactions work as expected" do
     Emulation.init()
@@ -64,9 +45,9 @@ defmodule TransactionsTest.Multipartition do
         # check that storage on partition 1 has the correct state based on the
         # multipartition transaction
 
-        kv_store = Enum.at(get_kv_stores(
+        kv_store = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
-        ), 0)
+        ) |> Enum.at(0)
 
         # `a` should equal `z + 1`
         assert Map.get(kv_store, :a) == 2
@@ -122,9 +103,9 @@ defmodule TransactionsTest.Multipartition do
         # check that storage on partition 1 has the correct state based on the
         # multipartition transaction
 
-        kv_store = Enum.at(get_kv_stores(
+        kv_store = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
-        ), 0)
+        ) |> Enum.at(0)
 
         # `a` should equal `z + w`
         assert Map.get(kv_store, :a) == 3
@@ -182,9 +163,9 @@ defmodule TransactionsTest.Multipartition do
         # check that storage on partition 1 has the correct state based on the
         # multipartition transaction
 
-        kv_store = Enum.at(get_kv_stores(
+        kv_store = Testing.get_kv_stores(
           _ids=Configuration.get_storage_view(configuration, :A)
-        ), 0)
+        ) |> Enum.at(0)
 
         # `a` should equal `z + w`
         assert Map.get(kv_store, :a) == 3
