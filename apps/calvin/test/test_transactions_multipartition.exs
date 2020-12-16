@@ -34,7 +34,6 @@ defmodule TransactionsTest.Multipartition do
 
         # send a Transaction involving both partitions
         tx = Transaction.new(_operations=[
-          Transaction.Op.read(:z),
           Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, 1))
         ])
         Client.send_tx(client, tx)
@@ -91,8 +90,6 @@ defmodule TransactionsTest.Multipartition do
 
         # send a Transaction involving both partitions
         tx = Transaction.new(_operations=[
-          Transaction.Op.read(:z),
-          Transaction.Op.read(:w),
           Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, :w))
         ])
         Client.send_tx(client, tx)
@@ -149,9 +146,6 @@ defmodule TransactionsTest.Multipartition do
 
         # send a Transaction involving both partitions
         tx = Transaction.new(_operations=[
-          Transaction.Op.read(:b),
-          Transaction.Op.read(:z),
-          Transaction.Op.read(:w),
           Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, :w)),
           Transaction.Op.create(:c, Transaction.Expression.new(:b, :+, :w))
         ])

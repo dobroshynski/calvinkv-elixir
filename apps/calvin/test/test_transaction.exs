@@ -7,35 +7,33 @@ defmodule TransactionTest do
     except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
 
   test "Transaction read set is generated as expected" do
-    # test single-op Transactions
-    tx1 = Transaction.new(_operations=[Transaction.Op.create(:a, 1)])
-    tx2 = Transaction.new(_operations=[Transaction.Op.update(:a, 0)])
-    tx3 = Transaction.new(_operations=[Transaction.Op.delete(:a)])
-    tx4 = Transaction.new(_operations=[Transaction.Op.read(:a)])
+    # test Transactions without expressions
+    tx1 = Transaction.new(_operations=[
+      Transaction.Op.create(:a, 1),
+      Transaction.Op.update(:a, 0),
+      Transaction.Op.delete(:a)
+    ])
+    tx2 = Transaction.new(_operations=[Transaction.Op.read(:a)])
 
     # check that the read sets are as expected
-    assert MapSet.size(tx1.read_set) == 0
-    assert MapSet.size(tx2.read_set) == 0
-    assert MapSet.size(tx3.read_set) == 0
+    assert MapSet.to_list(tx1.read_set) == []
+    assert MapSet.to_list(tx2.read_set) == [:a]
 
-    assert MapSet.size(tx4.read_set) == 1
-    assert MapSet.member?(tx4.read_set, :a) == true
-
-    # test multi-op Transactions
-    # create a Transaction with a couple of operations
-    tx = Transaction.new(_operations=[
-        Transaction.Op.create(:a, 1),
-        Transaction.Op.create(:b, 1),
-        Transaction.Op.update(:a, 0),
-        Transaction.Op.read(:a),
-        Transaction.Op.delete(:a),
+    # test Transactions with expressions that need to be evaluated
+    tx1 = Transaction.new(_operations=[
+      Transaction.Op.read(:z),
+      Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, 1))
     ])
-    # check that the read set is as expected
-    read_set = tx.read_set
+    tx2 = Transaction.new(_operations=[
+      Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, :w))
+    ])
 
-    assert MapSet.size(read_set) == 1
-    assert MapSet.member?(read_set, :a) == true
-    assert MapSet.member?(read_set, :b) == false
+    # check that the read sets are as expected
+    assert MapSet.to_list(tx1.read_set) == [:z]
+
+    assert MapSet.size(tx2.read_set) == 2
+    assert MapSet.member?(tx2.read_set, :z) == true
+    assert MapSet.member?(tx2.read_set, :w) == true
   end
 
   test "Transaction write set is generated as expected" do
@@ -111,5 +109,21 @@ defmodule Transaction.ExpressionTest do
 
     assert evaluated_op1.expr == 2
     assert evaluated_op2.expr == 1
+  end
+
+  test "Transaction.Expression generate_read_set/1 works as expected" do
+    # create a Transaction with a single operation that contains an Expression
+    # that needs to be evaluated
+    tx = Transaction.new(_operations=[
+      Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, :w)),
+    ])
+    expression = Enum.at(tx.operations, 0).expr
+    assert MapSet.to_list(expression.read_set) == [:w, :z]
+
+    tx = Transaction.new(_operations=[
+      Transaction.Op.create(:a, Transaction.Expression.new(:a, :+, 1)),
+    ])
+    expression = Enum.at(tx.operations, 0).expr
+    assert MapSet.to_list(expression.read_set) == [:a]
   end
 end

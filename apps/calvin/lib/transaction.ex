@@ -8,8 +8,28 @@ defmodule Transaction.Expression do
   defstruct(
     operand1: nil,
     operator: nil,
-    operand2: nil
+    operand2: nil,
+    # the set of values that this Expression requires to be evaluated
+    read_set: nil
   )
+
+  @doc """
+  Given a list of operands, generates a read set of values
+  that are required to evaluate the Expression with the given
+  operands
+  """
+  @spec generate_read_set([any()]) :: %MapSet{}
+  def generate_read_set(operands) do
+    Enum.reduce(operands, MapSet.new(),
+      fn val, acc ->
+        if is_atom(val) do
+          MapSet.put(acc, val)
+        else
+          acc
+        end
+      end
+    )
+  end
 
   @doc """
   Given an expression, evaluates it and returns the result. So far only
@@ -48,7 +68,8 @@ defmodule Transaction.Expression do
     %Transaction.Expression{
       operand1: operand1,
       operator: operator,
-      operand2: operand2
+      operand2: operand2,
+      read_set: generate_read_set([operand1, operand2])
     }
   end
 end
@@ -258,12 +279,19 @@ defmodule Transaction do
   def generate_read_set(operations) do
     # reduce all of the operations into a set by 
     # adding to set if the operation is a READ
-    Enum.reduce(operations, MapSet.new(), 
+    Enum.reduce(operations, MapSet.new(),
       fn op, acc ->
         case op.type do
           :READ ->
             MapSet.put(acc, op.key)
-          _ -> 
+          type when type in [:CREATE, :UPDATE] ->
+            case op.expr do
+              %Transaction.Expression{} ->
+                MapSet.union(acc, op.expr.read_set)
+              _ ->
+                acc
+            end
+          _ ->
             acc
         end
       end
