@@ -3,9 +3,9 @@ defmodule SchedulerTest do
   doctest Scheduler
   doctest Sequencer
 
-  import Emulation, only: [spawn: 2, send: 2]
+  import Emulation, only: [spawn: 2]
   import Kernel,
-    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3, send: 2]
+    except: [spawn: 3, spawn: 1, spawn_link: 1, spawn_link: 3]
 
   test "Sending BatchTransactionMessage to the Scheduler component is logged" do
     Emulation.init()

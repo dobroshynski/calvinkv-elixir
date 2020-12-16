@@ -11,7 +11,8 @@ defmodule Calvin.MixProject do
       lockfile: "../../mix.lock",
       elixir: "~> 1.10",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      test_pattern: "test_*.exs"
     ]
   end
 
