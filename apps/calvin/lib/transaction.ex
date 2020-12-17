@@ -32,8 +32,8 @@ defmodule Transaction.Expression do
   end
 
   @doc """
-  Given an expression, evaluates it and returns the result. So far only
-  supports basic arithmetic operations
+  Given an expression, evaluates it and returns the result. So far supports
+  basic arithmetic operations and basic boolean expressions
   """
   @spec eval(%Transaction.Expression{}, %{}) :: any()
   def eval(expr, all_collected_reads) do
@@ -49,6 +49,7 @@ defmodule Transaction.Expression do
         else: expr.operand2 
 
     case expr.operator do
+      # arithmetic expressions
       :+ ->
         operand1 + operand2
       :- ->
@@ -57,6 +58,20 @@ defmodule Transaction.Expression do
         operand1 * operand2
       :/ ->
         operand1 / operand2
+
+      # boolean expression
+      :> ->
+        operand1 > operand2
+      :>= ->
+        operand1 >= operand2       
+      :< ->
+        operand1 < operand2
+      :<= ->
+        operand1 <= operand2
+      :== ->
+        operand1 == operand2
+      :!= ->
+        operand1 != operand2
     end
   end
 
@@ -136,9 +151,39 @@ defmodule Transaction.Op do
     case op.type do
       :READ -> 
         false
+      :INVARIANT ->
+        false
       _ ->
         true
     end
+  end
+
+  @doc """
+  Given a `Transaction.Op` returns whether it is an `invariant` operation
+  """
+  @spec is_invariant?(%Transaction.Op{}) :: boolean()
+  def is_invariant?(op) do
+    case op.type do
+      :INVARIANT -> 
+        true
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  INVARIANT Operation which can act as a barrier to enforce needed safety conditions
+  and can be used to execute a transaction abort if needed
+
+  TODO: potentilly allow a custom 'operation' that will be executed if the invariant
+  is true/false
+  """
+  @spec invariant(%Transaction.Expression{}) :: %Transaction.Op{}
+  def invariant(expression) do
+    %Transaction.Op{
+      type: :INVARIANT,
+      expr: expression
+    }
   end
 
   @doc """
@@ -284,7 +329,7 @@ defmodule Transaction do
         case op.type do
           :READ ->
             MapSet.put(acc, op.key)
-          type when type in [:CREATE, :UPDATE] ->
+          type when type in [:CREATE, :UPDATE, :INVARIANT] ->
             case op.expr do
               %Transaction.Expression{} ->
                 MapSet.union(acc, op.expr.read_set)

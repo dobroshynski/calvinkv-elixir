@@ -34,6 +34,21 @@ defmodule TransactionTest do
     assert MapSet.size(tx2.read_set) == 2
     assert MapSet.member?(tx2.read_set, :z) == true
     assert MapSet.member?(tx2.read_set, :w) == true
+
+    # test a Transaction with invariant type operation
+    tx = Transaction.new(_operations=[
+      Transaction.Op.invariant(
+        Transaction.Expression.new(:z, :>, 0)
+      ),
+      Transaction.Op.create(:a, Transaction.Expression.new(:a, :+, 1))
+    ])
+
+    # check that the read set contains both `:a` from the CREATE expression
+    # and `:z` from the invariant expression
+
+    assert MapSet.size(tx.read_set) == 2
+    assert MapSet.member?(tx.read_set, :a) == true
+    assert MapSet.member?(tx.read_set, :z) == true
   end
 
   test "Transaction write set is generated as expected" do
@@ -94,7 +109,7 @@ defmodule Transaction.ExpressionTest do
   doctest Transaction
   doctest Transaction.Op
 
-  test "Transaction.Expression works as expected" do
+  test "Transaction.Expression arithmetic expressions work as expected" do
     tx = Transaction.new(_operations=[
       Transaction.Op.read(:z),
       Transaction.Op.create(:a, Transaction.Expression.new(:z, :+, 1)),
@@ -109,6 +124,26 @@ defmodule Transaction.ExpressionTest do
 
     assert evaluated_op1.expr == 2
     assert evaluated_op2.expr == 1
+  end
+
+  test "Transaction.Expression boolean expressions work as expected" do
+    tx = Transaction.new(_operations=[
+      Transaction.Op.invariant(
+        Transaction.Expression.new(:z, :>, 0)
+      ),
+      Transaction.Op.invariant(
+        Transaction.Expression.new(:a, :==, 0)
+      )
+    ])
+
+    op1 = Enum.at(tx.operations, 0)
+    op2 = Enum.at(tx.operations, 1)
+
+    evaluated_op1 = Transaction.Op.evaluate_expr(op1, %{z: 1, a: 1})
+    evaluated_op2 = Transaction.Op.evaluate_expr(op2, %{z: 1, a: 1})
+
+    assert evaluated_op1.expr == true
+    assert evaluated_op2.expr == false
   end
 
   test "Transaction.Expression generate_read_set/1 works as expected" do

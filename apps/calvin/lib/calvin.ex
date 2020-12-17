@@ -1211,6 +1211,37 @@ defmodule Scheduler do
   end
 
   @doc """
+  Given an operation and a combined set of local and remote reads, checks if
+  the operation is an `INVARIANT` type, and if yes, evaluates the invariant 
+  and signals to abort the Transaction if evaluated to `false`. Used with 
+  `Stream.take_while/1` when processing the tx operations to execute tx logic
+  and apply any local writes
+  """
+  @spec continue_tx?(%Transaction.Op{}, %{}) :: boolean()
+  def continue_tx?(op, all_collected_reads) do
+    # check if the operation is an invariant, and if so evaluate the invariant
+    # expression and potentially stop the execution of the transaction
+    if Transaction.Op.is_invariant?(op) do
+      # evaluate the invariant operation's expression using local and remote reads
+      # collected
+      op = Transaction.Op.evaluate_expr(op, all_collected_reads)
+
+      # if the invariant evaluated to false, abort the transaction, otherwise
+      # return true and continue executing the rest of operations and applying
+      # any local writes
+      if op.expr == false do
+        IO.puts("evaluated invariant #{inspect(op)}, aborting tx")
+        false
+      else
+        IO.puts("evaluated invariant #{inspect(op)}, continuing tx")
+        true
+      end
+    else
+      true
+    end
+  end
+
+  @doc """
   Finalizes the execution of a given Transaction against a Storage component after acquiring
   sets of both the local and remote required reads and applies all **local** write operations
   of the given Transaction, since non-local writes will be executed by other Schedulers
@@ -1219,7 +1250,11 @@ defmodule Scheduler do
   @spec apply_local_writes(%Sequencer{}, %Transaction{}, %{}, %{}, atom()) :: no_return()
   def apply_local_writes(state, tx, local_reads, remote_reads, storage_id) do
     # go through the operations and apply any local writes
-    Enum.map(tx.operations, 
+    tx.operations
+    # while going through the operations, check for invariants and stop processing
+    # of the transaction if need to deterministically abort the transaction
+    |> Stream.take_while(&continue_tx?(&1, Map.merge(local_reads, remote_reads)))
+    |> Enum.map(
       fn op ->
         # execute only local writes, as non-local writes will be seen as local by other
         # partitions and executed by Schedulers there
@@ -1316,7 +1351,6 @@ defmodule Scheduler do
       storage_id = Component.storage_id(state)
 
       # iterate the Transactions and execute against the Storage component
-      # TODO: add functionality to handle deterministic tx failures
       Enum.map(ordered_txs, 
         fn tx ->
           tx_execute(state, _transaction=tx, _storage=storage_id)
