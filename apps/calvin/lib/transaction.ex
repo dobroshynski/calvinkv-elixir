@@ -22,7 +22,7 @@ defmodule Transaction.Expression do
   def generate_read_set(operands) do
     Enum.reduce(operands, MapSet.new(),
       fn val, acc ->
-        if is_atom(val) do
+        if is_atom(val) && val != nil do
           MapSet.put(acc, val)
         else
           acc

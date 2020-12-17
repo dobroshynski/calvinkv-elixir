@@ -160,5 +160,14 @@ defmodule Transaction.ExpressionTest do
     ])
     expression = Enum.at(tx.operations, 0).expr
     assert MapSet.to_list(expression.read_set) == [:a]
+
+    # test that `nil` doesn't get counted in the read set
+    tx = Transaction.new(_operations=[
+      Transaction.Op.invariant(
+        Transaction.Expression.new(:a, :==, nil)
+      )
+    ])
+    expression = Enum.at(tx.operations, 0).expr
+    assert MapSet.to_list(expression.read_set) == [:a]
   end
 end
