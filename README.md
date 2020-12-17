@@ -8,6 +8,32 @@
 
 - Deterministic storage system - transaction client requests are agreed upon by designated components of the system and guaranteed to be executed by all replicas and corresponding partitions within each replica
 
+## Quickstart
+
+- `mix test` runs all tests in `apps/calvin/test`
+
+- Some tests for specific behavior
+    - `test/test_storage_async.exs` - tests consistency of `Storage` components on replicas when using `:async` replication of transactional input
+
+    - `test/test_storage_raft.exs` - tests consistency of `Storage` components on replicas when using `:raft` replication of transactional input
+
+    - `test/test_transactions_multipartition.exs` - tests multipartition txns within a single replica, including multiple transactions ordered as 'earlier'/'later' than one another for testing serializability (transaction ordered by a `Sequencer` component as occuring 'later' sees the state with 'earlier' writes applied and 'earlier' transaction doing READs does not see later transaction's WRITEs) 
+
+- Experiments can be run from `apps/calvin/experiments` with `mix test experiments/<file>`
+
+Elixir script in `balance_transfer.exs` executes simple 'balance transfer' multipartition transactions in form of
+
+```
+READ <- 'Alice', 'Zoe'
+
+SET 'Alice' -= 10
+SET 'Zoe' += 10
+```
+
+where the `Alice` record is stored on partition 1 and `Zoe` stored on partition 2, as the system does automatic partitioning of keys based on how many partitions are specified to a [`Configuration.new/2`](apps/calvin/lib/configuration.ex) via a [`PartitionScheme`](apps/calvin/lib/partitioning.ex).
+
+Scripts in `with_async.exs` and `with_raft.exs` run experiments measuring execution latencies of txns with either `:async` or `:raft` replication mode
+
 ## Why Transactions and (Distributed) Txs?
 
 - Multiple operations applied as an atomic unit, or none of them applied, storage system remains in consistent state
@@ -46,7 +72,10 @@
 
 - Transaction batches get forwarded to correct Schedulers at every epoch & interleaved
 
-- Each storage node only contains the data that it needs to based on the partitioning scheme - system figures out which transaction updates are “local” and which are not and executes accordingly
+- Each storage node only contains the data that it needs to based on the partitioning scheme -
+ during transaction execution the system figures out
+    - Which transaction updates are “local” and which are not and executes accordingly
+    - Which elements of the read set are local vs. remote and gathers/reads both the local and remote sets from participating partitions
 
 | Chart 1                   | Chart 2                   |
 |:-------------------------:|:-------------------------:|
