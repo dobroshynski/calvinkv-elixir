@@ -26,11 +26,22 @@ Elixir script in `balance_transfer.exs` executes simple 'balance transfer' multi
 ```
 READ <- 'Alice', 'Zoe'
 
+INVARIANT ('Alice' >= 10)
 SET 'Alice' -= 10
 SET 'Zoe' += 10
 ```
 
-where the `Alice` record is stored on partition 1 and `Zoe` stored on partition 2, as the system does automatic partitioning of keys based on how many partitions are specified to a [`Configuration.new/2`](apps/calvin/lib/configuration.ex) via a [`PartitionScheme`](apps/calvin/lib/partitioning.ex).
+where the `Alice` record is stored on partition 1 and `Zoe` stored on partition 2, as the system does automatic partitioning of keys based on how many partitions are specified to a [`Configuration.new/2`](apps/calvin/lib/configuration.ex) via a [`PartitionScheme`](apps/calvin/lib/partitioning.ex). An equivalent transaction of balance transfer with a check to abort if the balance is insufficient in our implementation would be
+
+```elixir
+tx = Transaction.new(_operations=[
+    Transaction.Op.invariant(
+        Transaction.Expression.new(:Alice, :>=, 10)
+    ),
+    Transaction.Op.update(:Alice, Transaction.Expression.new(:Alice, :-, 10)),
+    Transaction.Op.update(:Zoe, Transaction.Expression.new(:Zoe, :+, 10))
+])
+```
 
 Scripts in `with_async.exs` and `with_raft.exs` run experiments measuring execution latencies of txns with either `:async` or `:raft` replication mode
 
@@ -52,7 +63,7 @@ Scripts in `with_async.exs` and `with_raft.exs` run experiments measuring execut
 
 - The original Calvin paper proposes a layer to run against a non-transactional storage system to transform it into “highly available” DB system supporting ACID transactions
 
-- Splits time into epochs, transactions are batched
+- Splits time into epochs, transactions are batched by 'sequencers` which impose an order on transactions received
 
 - Focuses on throughput, proposing to use a specific locking mechanism to ensure transactions execute in parallel (efficiently) but in agreed upon order against the storage layer
 
