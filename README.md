@@ -1,6 +1,6 @@
 # Deterministic Distributed Transactions atop a Partitioned, Replicated KV Store
 
-`@author andrii dobroshynskyi`
+`@author andrii dobroshynski`
 
 ## Intro
 
